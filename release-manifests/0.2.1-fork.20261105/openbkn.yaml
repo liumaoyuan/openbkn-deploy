@@ -1,0 +1,75 @@
+# OpenBKN 九格多源本体构建系统二次开发测试清单。
+#
+# 基线为官方 OpenBKN 0.1.5 发布清单。仅 bkn-safe 和 bkn-studio 使用
+# liumaoyuan Fork 的 Actions 构建产物，其他组件继续使用官方 0.1.5 Chart。
+#
+# 制作离线包时必须同时配置 Fork 优先和官方回退：
+#   -ChartRegistry oci://ghcr.io/liumaoyuan/charts
+#   -FallbackChartRegistry oci://ghcr.io/openbkn-ai/charts
+#   -ImageRegistry ghcr.io/liumaoyuan
+#   -FallbackImageRegistry ghcr.io/openbkn-ai
+#
+# 在线直接部署时还必须通过 --registry=ghcr.io/liumaoyuan 或
+# --set image.registry=ghcr.io/liumaoyuan 覆盖 Chart 默认镜像仓库。
+#
+# 二开来源：
+#   bkn-foundry bkn-safe
+#     commit 59ec780c78e33e32f83c7640754139f157bc9427
+#     run    41957916181
+#   bkn-studio
+#     commit 6222138dab401b2226fb1afbae6ec8b4e6abb64d
+#     run    41957344913
+apiVersion: deploy.openbkn.ai/v0.1.5
+kind: VersionSet
+product: bkn-foundry
+version: 0.2.1-fork.20261105
+source:
+  type: oci
+  registry: oci://ghcr.io/liumaoyuan/charts
+releases:
+  core-data-migrator:
+    chart: core-data-migrator
+    version: 0.1.5
+    stage: pre
+  bkn-safe:
+    chart: bkn-safe
+    version: 0.2.1-main.20261105104849.sha59ec780
+  mf-model-manager:
+    chart: mf-model-manager
+    version: 0.1.5
+  mf-model-api:
+    chart: mf-model-api
+    version: 0.1.5
+  vega-backend:
+    chart: vega-backend
+    version: 0.1.5
+  bkn-backend:
+    chart: bkn-backend
+    version: 0.1.5
+  ontology-query:
+    chart: ontology-query
+    version: 0.1.5
+  agent-operator-integration:
+    chart: agent-operator-integration
+    version: 0.1.5
+  oss-gateway-backend:
+    chart: oss-gateway-backend
+    version: 0.1.5
+  sandbox:
+    chart: sandbox
+    version: 0.1.5
+  agent-retrieval:
+    chart: agent-retrieval
+    version: 0.1.5
+  bkn-agent:
+    chart: bkn-agent
+    version: 0.1.5
+  agent-observability:
+    chart: agent-observability
+    version: 0.1.5
+  otelcol-contrib:
+    chart: otelcol-contrib
+    version: 0.1.5
+  bkn-studio:
+    chart: bkn-studio
+    version: 0.2.0-feature-openbkn-offline-secondary-dev.20261105103739.sha6222138
