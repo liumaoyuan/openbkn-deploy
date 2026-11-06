@@ -1165,6 +1165,20 @@ except (ValueError, binascii.Error):
     fi
 }
 
+_openbkn_dump_trace_topic_job_diagnostics() {
+    local namespace="$1" job_name="$2"
+    [[ -n "${job_name}" ]] || return 0
+
+    log_error "BKN Trace Kafka Admin Job diagnostics: ${namespace}/${job_name}"
+    kubectl get job "${job_name}" -n "${namespace}" -o wide || true
+    kubectl get pods -n "${namespace}" -l "job-name=${job_name}" -o wide || true
+    kubectl describe job "${job_name}" -n "${namespace}" || true
+    kubectl logs "job/${job_name}" -n "${namespace}" --all-containers=true || true
+    kubectl get events -n "${namespace}" \
+        --field-selector "involvedObject.kind=Job,involvedObject.name=${job_name}" \
+        --sort-by=.lastTimestamp || true
+}
+
 _openbkn_prepare_trace_evidence_topic() (
     local namespace="$1" image job_name="" manifest consumer_enabled brokers secret mechanism override
     local username_key=username password_key=password
@@ -1199,7 +1213,12 @@ _openbkn_prepare_trace_evidence_topic() (
         return 1
     fi
     job_name="$(kubectl create -f "${manifest}" -o jsonpath='{.metadata.name}')" || return 1
-    if [[ -z "${job_name}" ]] || ! kubectl wait -n "${namespace}" --for=condition=complete "job/${job_name}" --timeout=120s >/dev/null 2>&1; then
+    if [[ -z "${job_name}" ]]; then
+        log_error "BKN Trace Evidence topic prerequisite Job was not created"
+        return 1
+    fi
+    if ! kubectl wait -n "${namespace}" --for=condition=complete "job/${job_name}" --timeout=120s >/dev/null 2>&1; then
+        _openbkn_dump_trace_topic_job_diagnostics "${namespace}" "${job_name}"
         log_error "BKN Trace Evidence topic prerequisite failed: verify Kafka access and message.timestamp.type=LogAppendTime. Existing CreateTime topics require an operator-reviewed migration; old records are not rewritten."
         return 1
     fi
@@ -1228,7 +1247,12 @@ _openbkn_prepare_audit_topic() (
         return 1
     fi
     job_name="$(kubectl create -f "${manifest}" -o jsonpath='{.metadata.name}')" || return 1
-    if [[ -z "${job_name}" ]] || ! kubectl wait -n "${namespace}" --for=condition=complete "job/${job_name}" --timeout=120s >/dev/null 2>&1; then
+    if [[ -z "${job_name}" ]]; then
+        log_error 'Audit topic prerequisite Job was not created'
+        return 1
+    fi
+    if ! kubectl wait -n "${namespace}" --for=condition=complete "job/${job_name}" --timeout=120s >/dev/null 2>&1; then
+        _openbkn_dump_trace_topic_job_diagnostics "${namespace}" "${job_name}"
         log_error 'Audit topic prerequisite failed: verify authentication/topic permissions and LogAppendTime. Existing CreateTime topics and records were not modified; operator-reviewed migration is required.'
         return 1
     fi

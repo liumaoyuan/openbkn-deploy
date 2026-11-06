@@ -34,6 +34,10 @@ TOPIC_WAIT_STATUS=1
 : >"${TOPIC_TEST_DIR}/calls"
 if _openbkn_prepare_trace_evidence_topic test; then echo 'FAIL: wait failure must stop'; exit 1; fi
 grep -q 'delete job topic-test-job -n test' "${TOPIC_TEST_DIR}/calls"
+grep -q 'get pods -n test -l job-name=topic-test-job' "${TOPIC_TEST_DIR}/calls"
+grep -q 'describe job topic-test-job -n test' "${TOPIC_TEST_DIR}/calls"
+grep -q 'logs job/topic-test-job -n test --all-containers=true' "${TOPIC_TEST_DIR}/calls"
+grep -q 'BKN Trace Kafka Admin Job diagnostics: test/topic-test-job' "${TOPIC_TEST_DIR}/errors"
 grep -q 'Existing CreateTime topics require an operator-reviewed migration' "${TOPIC_TEST_DIR}/errors"
 
 CORE_SET_VALUES=(kafkaConsumers.evidence.enabled=false)
