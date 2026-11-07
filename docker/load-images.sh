@@ -27,11 +27,17 @@ fi
 
 if [[ -f "$TAR.sha256" ]]; then
   echo "== 校验 sha256 =="
+  expected=$(awk '{print $1}' "$TAR.sha256")
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$TAR.sha256"
+    actual=$(sha256sum "$TAR" | awk '{print $1}')
   else
-    shasum -a 256 -c "$TAR.sha256"
+    actual=$(shasum -a 256 "$TAR" | awk '{print $1}')
   fi
+  if [[ "$expected" != "$actual" ]]; then
+    echo "sha256 不一致: $TAR" >&2
+    exit 1
+  fi
+  echo "  ✓ 校验通过"
 fi
 
 echo "== 导入镜像 =="

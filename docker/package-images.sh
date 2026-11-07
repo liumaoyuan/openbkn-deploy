@@ -72,11 +72,13 @@ printf '%s\n' "${IMAGES[@]}" | tee "$MANIFEST"
 
 docker save -o "$OUT" "${IMAGES[@]}"
 
+# 只写文件名（不写路径），这样 bash 与 PowerShell 两个打包端、两个导入端都能校验。
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$OUT" > "$OUT.sha256"
+  file_hash=$(sha256sum "$OUT" | awk '{print $1}')
 else
-  shasum -a 256 "$OUT" > "$OUT.sha256"
+  file_hash=$(shasum -a 256 "$OUT" | awk '{print $1}')
 fi
+printf '%s  %s\n' "$file_hash" "$(basename "$OUT")" > "$OUT.sha256"
 
 echo "== 完成 =="
 ls -lh "$OUT"

@@ -73,13 +73,23 @@ docker compose --env-file .env down
 
 ~~~powershell
 cd openbkn-deploy/docker
+
+# 方式一：Git Bash
 bash package-images.sh              # 构建 + 导出全部镜像
 bash package-images.sh --list       # 只查看清单与体积
+
+# 方式二：纯 PowerShell（无需 Git Bash）
+powershell -File .\package-images.ps1
+powershell -File .\package-images.ps1 -List
 ~~~
+
+> PowerShell 里直接输入 `bash` 可能命中 WSL 的启动器（`C:\Windows\System32\bash.exe`）。若 WSL 没有可用发行版，会报 `execvpe(/bin/bash) failed: No such file or directory`——改用 Git Bash 的完整路径，或直接用 `.ps1` 版本。
+>
+> Windows 客户端默认执行策略为 `Restricted`，脚本可能被拦截。可选：`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`（一次性），或单次运行加 `-ExecutionPolicy Bypass`。
 
 产物（默认写到 `openbkn-deploy/build/`）：
 
-- `openbkn-images.tar`：22 个镜像（14 个应用镜像 + 8 个运行期依赖）
+- `openbkn-images.tar`：23 个镜像（14 个应用镜像 + 9 个运行期依赖），约 2.8 GB
 - `openbkn-images.tar.sha256`：校验和
 - `images.txt`：镜像清单
 
@@ -89,9 +99,14 @@ bash package-images.sh --list       # 只查看清单与体积
 
 需要提前准备 Docker Engine、Docker Compose v2，以及同架构的运行环境（`docker version` 查看 `Os/Arch`）。
 
-~~~bash
+~~~powershell
 cd openbkn-deploy/docker
+
+# Git Bash
 bash load-images.sh                 # 校验 sha256 → docker load → 逐个核对镜像
+
+# 或者纯 PowerShell
+powershell -File .\load-images.ps1
 ~~~
 
 然后生成配置并启动：
