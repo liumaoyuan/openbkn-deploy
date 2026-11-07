@@ -216,6 +216,7 @@ services:
     networks: [openbkn]
 
   bkn-safe:
+    image: openbkn/bkn-safe:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/bkn-safe
       dockerfile: Dockerfile
@@ -249,6 +250,7 @@ services:
     networks: [openbkn]
 
   data-migrator:
+    image: openbkn/data-migrator:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry
       dockerfile: data-migrator/Dockerfile
@@ -284,6 +286,7 @@ services:
     networks: [openbkn]
 
   bkn-backend-svc:
+    image: openbkn/bkn-backend:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry
       dockerfile: adp/bkn/bkn-backend/docker/Dockerfile
@@ -302,6 +305,7 @@ services:
     networks: [openbkn]
 
   ontology-query-svc:
+    image: openbkn/ontology-query:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry
       dockerfile: adp/bkn/ontology-query/docker/Dockerfile
@@ -319,6 +323,7 @@ services:
     networks: [openbkn]
 
   vega-backend-svc:
+    image: openbkn/vega-backend:${OPENBKN_IMAGE_TAG:-local}
     build:
       # 与 CI 一致：上下文为 server 目录，Dockerfile 用 COPY . . 读取 server/ 下的源码。
       context: ../../bkn-foundry/vega/vega-backend/server
@@ -338,6 +343,7 @@ services:
     networks: [openbkn]
 
   mf-model-api:
+    image: openbkn/mf-model-api:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/mf-model-api
       dockerfile: Dockerfile
@@ -364,6 +370,7 @@ services:
     networks: [openbkn]
 
   mf-model-manager:
+    image: openbkn/mf-model-manager:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/mf-model-manager
       dockerfile: Dockerfile
@@ -388,6 +395,7 @@ services:
     networks: [openbkn]
 
   agent-retrieval:
+    image: openbkn/agent-retrieval:${OPENBKN_IMAGE_TAG:-local}
     build:
       # Dockerfile 里的 COPY 使用仓库根相对路径，因此上下文必须是 bkn-foundry 根目录。
       context: ../../bkn-foundry
@@ -410,6 +418,7 @@ services:
     networks: [openbkn, sandbox_network]
 
   agent-operator-integration:
+    image: openbkn/agent-operator-integration:${OPENBKN_IMAGE_TAG:-local}
     build:
       # 同上：Dockerfile 使用仓库根相对路径 COPY。
       context: ../../bkn-foundry
@@ -437,6 +446,7 @@ services:
     networks: [openbkn]
 
   oss-gateway-backend:
+    image: openbkn/oss-gateway-backend:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/oss-gateway-backend
       dockerfile: Dockerfile
@@ -456,6 +466,7 @@ services:
     networks: [openbkn]
 
   bkn-agent:
+    image: openbkn/bkn-agent:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/bkn-agent
       dockerfile: Dockerfile
@@ -491,6 +502,7 @@ services:
     networks: [openbkn]
 
   agent-observability:
+    image: openbkn/agent-observability:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/bkn-trace/agent-observability
       dockerfile: Dockerfile
@@ -520,6 +532,7 @@ services:
     networks: [openbkn]
 
   sandbox-control-plane:
+    image: openbkn/sandbox-control-plane:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/sandbox
       dockerfile: sandbox_control_plane/Dockerfile
@@ -563,6 +576,7 @@ services:
     networks: [openbkn, sandbox_network]
 
   studio:
+    image: openbkn/studio:${OPENBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-studio
       dockerfile: Dockerfile

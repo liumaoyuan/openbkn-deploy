@@ -61,6 +61,55 @@ docker compose --env-file .env down
 
 数据保存在 Compose 命名卷。重新构建应用镜像可执行 docker compose --env-file .env build，之后再执行 up -d。
 
+## 离线 / 内网迁移
+
+把整套栈搬到不能访问外网的内网机器时，镜像不是全部。运行期还依赖本目录下的 compose 配置、渲染出来的运行时配置和一次性初始化（Hydra 客户端注册、数据库初始化），这些都不在镜像里。
+
+### 构建来源
+
+应用镜像由 `docker compose build` 从**本机工作区源码**构建（`../../bkn-foundry`、`../../bkn-studio`），不使用 GitHub Actions 发布的镜像。也就是说，打出来的镜像包含当前工作区的代码状态（包括未提交的改动）。如果需要可复现的产物，应当先在干净检出的对应分支上构建。
+
+### 在联网机器上打包
+
+~~~powershell
+cd openbkn-deploy/docker
+bash 打包镜像.sh              # 构建 + 导出全部镜像
+bash 打包镜像.sh --list       # 只查看清单与体积
+~~~
+
+产物（默认写到 `openbkn-deploy/build/`）：
+
+- `openbkn-images.tar`：22 个镜像（14 个应用镜像 + 8 个运行期依赖）
+- `openbkn-images.tar.sha256`：校验和
+- `images.txt`：镜像清单
+
+应用镜像名固定为 `openbkn/<service>:<tag>`，`<tag>` 由 `.env` 中的 `OPENBKN_IMAGE_TAG` 决定，默认 `local`。
+
+### 在内网机器上导入
+
+需要提前准备 Docker Engine、Docker Compose v2，以及同架构的运行环境（`docker version` 查看 `Os/Arch`）。
+
+~~~bash
+cd openbkn-deploy/docker
+bash 导入镜像.sh              # 校验 sha256 → docker load → 逐个核对镜像
+~~~
+
+然后生成配置并启动：
+
+~~~bash
+cp .env.example .env
+# 修改 OPENBKN_BIND_ADDRESS=0.0.0.0 和 OPENBKN_PUBLIC_BASE_URL=http://<内网IP>:8080
+python3 初始化.py
+docker compose --env-file .env up -d      # 不要加 --build
+~~~
+
+### 注意事项
+
+- **Hydra 的 OAuth 客户端存在 PostgreSQL 数据卷里**。内网机器上必须让数据卷从空开始，`hydra-client-seed` 才会按新的 `OPENBKN_PUBLIC_BASE_URL` 注册 `openbkn-studio`；拷贝旧数据卷会导致回调地址仍是旧 URL，登录失败。
+- **沙箱执行模板镜像不在打包范围内**：`sandbox-control-plane` 运行时会按自身配置拉取执行模板镜像，内网环境需要自备并改配置，否则代码执行类功能不可用。
+- **模型服务需要单独准备**：`mf-model-*` 只是管理面，推理走你在 Studio 里配置的模型提供商。
+- 修改 `OPENBKN_PUBLIC_BASE_URL` 后需要重新执行 `初始化.py`，并重启 `gateway`、`bkn-safe`、`studio`、`hydra`。
+
 ## 安全与限制
 
 - Gateway 是唯一发布到宿主机的服务端口。数据库、Kafka、Redis、OpenSearch、MinIO、Hydra 管理端及内部 API 只在 Docker 网络内可达。
