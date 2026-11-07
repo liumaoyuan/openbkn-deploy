@@ -13,7 +13,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 EXAMPLE = HERE / ".env.example"
 ENV_FILE = HERE / ".env"
-RENDERER = HERE / "渲染配置.py"
+RENDERER = HERE / "render_config.py"
 
 
 def secret(byte_count: int = 30) -> str:

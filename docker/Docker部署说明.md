@@ -15,7 +15,7 @@
 ~~~powershell
 Set-Location E:/workspace/qy/openbkn/openbkn-deploy/docker
 python -m pip install PyYAML
-python .\初始化.py
+python .\init.py
 docker compose --env-file .env config --quiet
 ~~~
 
@@ -73,8 +73,8 @@ docker compose --env-file .env down
 
 ~~~powershell
 cd openbkn-deploy/docker
-bash 打包镜像.sh              # 构建 + 导出全部镜像
-bash 打包镜像.sh --list       # 只查看清单与体积
+bash package-images.sh              # 构建 + 导出全部镜像
+bash package-images.sh --list       # 只查看清单与体积
 ~~~
 
 产物（默认写到 `openbkn-deploy/build/`）：
@@ -91,7 +91,7 @@ bash 打包镜像.sh --list       # 只查看清单与体积
 
 ~~~bash
 cd openbkn-deploy/docker
-bash 导入镜像.sh              # 校验 sha256 → docker load → 逐个核对镜像
+bash load-images.sh                 # 校验 sha256 → docker load → 逐个核对镜像
 ~~~
 
 然后生成配置并启动：
@@ -99,7 +99,7 @@ bash 导入镜像.sh              # 校验 sha256 → docker load → 逐个核�
 ~~~bash
 cp .env.example .env
 # 修改 OPENBKN_BIND_ADDRESS=0.0.0.0 和 OPENBKN_PUBLIC_BASE_URL=http://<内网IP>:8080
-python3 初始化.py
+python3 init.py
 docker compose --env-file .env up -d      # 不要加 --build
 ~~~
 
@@ -108,7 +108,7 @@ docker compose --env-file .env up -d      # 不要加 --build
 - **Hydra 的 OAuth 客户端存在 PostgreSQL 数据卷里**。内网机器上必须让数据卷从空开始，`hydra-client-seed` 才会按新的 `OPENBKN_PUBLIC_BASE_URL` 注册 `openbkn-studio`；拷贝旧数据卷会导致回调地址仍是旧 URL，登录失败。
 - **沙箱执行模板镜像不在打包范围内**：`sandbox-control-plane` 运行时会按自身配置拉取执行模板镜像，内网环境需要自备并改配置，否则代码执行类功能不可用。
 - **模型服务需要单独准备**：`mf-model-*` 只是管理面，推理走你在 Studio 里配置的模型提供商。
-- 修改 `OPENBKN_PUBLIC_BASE_URL` 后需要重新执行 `初始化.py`，并重启 `gateway`、`bkn-safe`、`studio`、`hydra`。
+- 修改 `OPENBKN_PUBLIC_BASE_URL` 后需要重新执行 `init.py`，并重启 `gateway`、`bkn-safe`、`studio`、`hydra`。
 
 ## 安全与限制
 

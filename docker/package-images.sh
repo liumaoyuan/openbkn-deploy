@@ -2,9 +2,9 @@
 # 打包本栈所需的全部 Docker 镜像，用于迁移到内网/离线机器。
 #
 # 用法:
-#   bash 打包镜像.sh                 # 先构建应用镜像，再打包全部镜像
-#   bash 打包镜像.sh --list          # 只列出镜像清单和本地体积，不导出
-#   bash 打包镜像.sh <输出文件>       # 指定输出路径（默认 ../build/openbkn-images.tar）
+#   bash package-images.sh                 # 先构建应用镜像，再打包全部镜像
+#   bash package-images.sh --list          # 只列出镜像清单和本地体积，不导出
+#   bash package-images.sh <输出文件>       # 指定输出路径（默认 ../build/openbkn-images.tar）
 #
 # 环境变量:
 #   SKIP_BUILD=1  跳过 docker compose build，直接打包现有镜像
@@ -34,7 +34,7 @@ for arg in "$@"; do
 done
 
 if [[ ! -f .env ]]; then
-  echo "缺少 .env，请先运行: python3 初始化.py" >&2
+  echo "缺少 .env，请先运行: python3 init.py" >&2
   exit 1
 fi
 
@@ -81,4 +81,4 @@ fi
 echo "== 完成 =="
 ls -lh "$OUT"
 echo "把 $OUT、$OUT.sha256、images.txt 与本目录一起拷贝到内网机器，"
-echo "在内网机器上执行: bash 导入镜像.sh"
+echo "在内网机器上执行: bash load-images.sh"

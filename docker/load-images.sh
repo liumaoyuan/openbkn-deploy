@@ -2,8 +2,8 @@
 # 在离线/内网机器上导入镜像并核对完整性。
 #
 # 用法:
-#   bash 导入镜像.sh                # 默认读取 ../build/openbkn-images.tar
-#   bash 导入镜像.sh <tar 文件>
+#   bash load-images.sh                # 默认读取 ../build/openbkn-images.tar
+#   bash load-images.sh <tar 文件>
 #
 # 步骤:
 #   1. 若存在 <tar>.sha256，先校验文件完整性
@@ -14,7 +14,7 @@
 #   导入完成后仍需在内网机器上生成 .env 与运行时配置:
 #     cp .env.example .env   # 或者从原机器带过来
 #     修改 OPENBKN_BIND_ADDRESS / OPENBKN_PUBLIC_BASE_URL
-#     python3 初始化.py
+#     python3 init.py
 #     docker compose --env-file .env up -d     # 不要加 --build
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -58,4 +58,4 @@ if [[ $missing -ne 0 ]]; then
 fi
 
 echo "== 全部镜像就绪（本机架构: $(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')）=="
-echo "下一步: 配置 .env → python3 初始化.py → docker compose --env-file .env up -d"
+echo "下一步: 配置 .env → python3 init.py → docker compose --env-file .env up -d"
