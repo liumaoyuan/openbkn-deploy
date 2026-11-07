@@ -52,9 +52,10 @@ usage() {
     echo "  k3s uninstall                 Run k3s-uninstall.sh (removes k3s)"
     echo "  k3s status                    Show cluster status (nodes and pods)"
     echo "  mariadb install               Install single-node MariaDB 11"
-    echo "  mariadb uninstall             Uninstall MariaDB (blocked if openbkn installed)"
+    echo "  mariadb uninstall             Uninstall MariaDB, keeping its PVC (blocked if openbkn installed)"
     echo "  mariadb uninstall --force     Force uninstall MariaDB even if openbkn installed (WARNING)"
     echo "  mariadb uninstall --delete-data  Uninstall MariaDB and delete PVC (data loss!)"
+    echo "  mariadb repair-password       Reset MariaDB root/app password to config.yaml (keeps data)"
     echo "  redis install                 Install single-node Redis 7"
     echo "  redis uninstall               Uninstall Redis (PVCs will be deleted by default)"
     echo "  kafka install                 Install single-node Kafka"
@@ -717,6 +718,10 @@ main() {
                     esac
                 done
                 uninstall_mariadb
+                ;;
+            repair-password|reset-password)
+                require_root_for_helm_cluster_addons_only
+                repair_mariadb_root_password
                 ;;
             *)
                 log_error "Unknown mariadb action: ${action}"

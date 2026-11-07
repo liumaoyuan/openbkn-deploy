@@ -392,6 +392,78 @@ _k8s_ensure_helm_usr_bin_copy() {
     log_info "Copied /usr/local/bin/helm → /usr/bin (sudo secure_path compatibility)"
 }
 
+# Windows 检出/打包会把脚本变成 CRLF，bash 随后逐行报 `$'\r': command not found`
+# 或 "near unexpected token" 语法错误。执行外部脚本前就地归一化，避免离线机上无法自修。
+_k8s_normalize_script_line_endings() {
+    local file="$1"
+    [[ -f "${file}" ]] || return 0
+    grep -qU $'\r' "${file}" 2>/dev/null || return 0
+    local tmp
+    tmp="$(mktemp)" || return 0
+    if sed 's/\r$//' "${file}" > "${tmp}" 2>/dev/null; then
+        cat "${tmp}" > "${file}"
+    fi
+    rm -f "${tmp}" 2>/dev/null || true
+}
+
+# 离线包把 Helm tarball 放在 <bundle>/helm/ 下。deploy.sh 运行在
+# <bundle>/openbkn-deploy，因此兄弟目录 ../helm 就是包内位置。
+# 只输出路径，不打印日志（调用方用命令替换捕获）。
+_k8s_find_local_helm_tarball() {
+    local arch="$1" candidate
+    local -a candidates=()
+
+    [[ -n "${HELM_LOCAL_TARBALL:-}" ]] && candidates+=("${HELM_LOCAL_TARBALL}")
+    [[ -n "${HELM_TARBALL_DIR:-}" ]] && candidates+=("${HELM_TARBALL_DIR}/helm-${HELM_VERSION}-linux-${arch}.tar.gz")
+    candidates+=(
+        "${SCRIPT_DIR}/../helm/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+        "${SCRIPT_DIR}/helm/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+        "${CONF_DIR}/helm/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -f "${candidate}" ]]; then
+            printf '%s' "${candidate}"
+            return 0
+        fi
+    done
+
+    # 离线包把版本写死（当前 3.18.6），可能与 HELM_VERSION 不一致；接受任意 v3 tarball。
+    for candidate in "${SCRIPT_DIR}/../helm"/helm-*-linux-"${arch}".tar.gz \
+                     "${SCRIPT_DIR}/helm"/helm-*-linux-"${arch}".tar.gz; do
+        if [[ -f "${candidate}" ]]; then
+            printf '%s' "${candidate}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+_k8s_install_helm_from_tarball() {
+    local tarball="$1" arch="$2"
+    local tmpdir
+
+    tmpdir="$(mktemp -d /tmp/helm.XXXXXX)" || return 1
+    if ! tar -xzf "${tarball}" -C "${tmpdir}" 2>/dev/null; then
+        log_error "Failed to extract Helm tarball: ${tarball}"
+        rm -rf "${tmpdir}" 2>/dev/null || true
+        return 1
+    fi
+    if [[ ! -x "${tmpdir}/linux-${arch}/helm" ]]; then
+        log_error "Helm binary missing in tarball (expected linux-${arch}/helm): ${tarball}"
+        rm -rf "${tmpdir}" 2>/dev/null || true
+        return 1
+    fi
+    if ! install -m 0755 "${tmpdir}/linux-${arch}/helm" /usr/local/bin/helm; then
+        rm -rf "${tmpdir}" 2>/dev/null || true
+        return 1
+    fi
+    install -m 0755 "${tmpdir}/linux-${arch}/helm" /usr/bin/helm 2>/dev/null || true
+    rm -rf "${tmpdir}" 2>/dev/null || true
+    return 0
+}
+
 # Install Helm 3
 install_helm() {
     log_info "Installing Helm 3..."
@@ -401,40 +473,8 @@ install_helm() {
     local existing=""
     if command -v helm &> /dev/null; then
         existing="$(helm version --short 2>/dev/null | awk '{print $1}' | cut -d'+' -f1 || true)"
-        if [[ -n "${existing}" && "${existing}" == "${desired}" ]]; then
-            log_info "Helm ${desired} is already installed"
-            return 0
-        fi
-        if [[ -n "${existing}" ]]; then
-            log_warn "Helm version ${existing} detected; installing desired ${desired}"
-        fi
     fi
 
-    # In offline mode, skip helm installation - assume it's pre-installed
-    if [[ "${OFFLINE_MODE}" == "true" ]]; then
-        log_info "Offline mode: Skipping Helm installation"
-        log_info "Checking for pre-installed Helm..."
-
-        if ! command -v helm &> /dev/null; then
-            log_error "Helm is not installed."
-            log_error "In offline mode, please pre-install Helm ${HELM_VERSION}"
-            log_error ""
-            log_error "Installation options:"
-            log_error "  1. Package manager (if available in your offline repo):"
-            log_error "     yum install -y helm  # or dnf/apt-get"
-            log_error ""
-            log_error "  2. Binary download and manual installation:"
-            log_error "     wget https://repo.huaweicloud.com/helm/${HELM_VERSION}/helm-${HELM_VERSION}-linux-amd64.tar.gz"
-            log_error "     tar -xzf helm-*.tar.gz"
-            log_error "     mv linux-amd64/helm /usr/local/bin/"
-            return 1
-        fi
-
-        log_info "✓ Helm is pre-installed: $(helm version --short 2>/dev/null | head -1 || echo 'unknown')"
-        return 0
-    fi
-
-    # Prefer HuaweiCloud tarball (pinned by version + arch); fallback to get-helm-3 script if needed.
     local arch=""
     case "$(uname -m)" in
         x86_64|amd64)
@@ -444,10 +484,59 @@ install_helm() {
             arch="arm64"
             ;;
         *)
-            log_error "Unsupported architecture for Helm: $(uname -m)"
-            return 1
+            arch=""
             ;;
     esac
+
+    # 离线模式不访问外部网络：任意已安装的 Helm v3+ 都直接复用，
+    # 否则用离线包里的 tarball。绝不能让离线机上等 huaweicloud 的 curl 超时。
+    if [[ "${OFFLINE_MODE}" == "true" ]]; then
+        if [[ "${existing}" == v3.* || "${existing}" == v4.* ]]; then
+            log_info "Offline mode: using pre-installed Helm ${existing}"
+            return 0
+        fi
+        if [[ -z "${arch}" ]]; then
+            log_error "Unsupported architecture for Helm: $(uname -m)"
+            return 1
+        fi
+
+        local offline_tarball=""
+        if offline_tarball="$(_k8s_find_local_helm_tarball "${arch}")"; then
+            log_info "Offline mode: installing Helm from local bundle: ${offline_tarball}"
+            _k8s_install_helm_from_tarball "${offline_tarball}" "${arch}" || return 1
+            _k8s_ensure_helm_usr_bin_copy
+            log_info "✓ Helm installed from local bundle: $(helm version --short 2>/dev/null | head -1 || echo 'unknown')"
+            return 0
+        fi
+
+        log_error "Helm is not installed and no local Helm tarball was found."
+        log_error "In offline mode, pre-install Helm ${HELM_VERSION} or ship the tarball at:"
+        log_error "  <bundle>/helm/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+        log_error "  (or set HELM_LOCAL_TARBALL=/path/to/helm-*-linux-${arch}.tar.gz)"
+        return 1
+    fi
+
+    if [[ -n "${existing}" && "${existing}" == "${desired}" ]]; then
+        log_info "Helm ${desired} is already installed"
+        return 0
+    fi
+    if [[ -n "${existing}" ]]; then
+        log_warn "Helm version ${existing} detected; installing desired ${desired}"
+    fi
+    if [[ -z "${arch}" ]]; then
+        log_error "Unsupported architecture for Helm: $(uname -m)"
+        return 1
+    fi
+
+    # 即使是联网安装，只要有包内 tarball 就优先使用，避免内网机器卡在 curl 超时。
+    local local_tarball=""
+    if local_tarball="$(_k8s_find_local_helm_tarball "${arch}")"; then
+        log_info "Using bundled Helm tarball: ${local_tarball}"
+        _k8s_install_helm_from_tarball "${local_tarball}" "${arch}" || return 1
+        _k8s_ensure_helm_usr_bin_copy
+        log_info "✓ Helm installed: $(helm version --short 2>/dev/null | head -1 || echo 'unknown')"
+        return 0
+    fi
 
     local base="${HELM_TARBALL_BASEURL%/}/"
     local tarball="helm-${desired}-linux-${arch}.tar.gz"
@@ -467,15 +556,26 @@ install_helm() {
     rm -rf "${tmpdir}" 2>/dev/null || true
 
     log_warn "Failed to download Helm tarball from HuaweiCloud; falling back to get-helm-3 script..."
+    local fallback_rc=0
     if [[ -f "${HELM_INSTALL_SCRIPT_PATH}" ]]; then
-        bash "${HELM_INSTALL_SCRIPT_PATH}"
+        _k8s_normalize_script_line_endings "${HELM_INSTALL_SCRIPT_PATH}"
+        bash "${HELM_INSTALL_SCRIPT_PATH}" || fallback_rc=$?
     else
-        curl -fsSL "${HELM_INSTALL_SCRIPT_URL}" | bash
+        curl -fsSL "${HELM_INSTALL_SCRIPT_URL}" | bash || fallback_rc=$?
     fi
     _k8s_ensure_helm_usr_bin_copy
 
+    # 不要无条件报告成功：get-helm-3 在 CRLF 或无网络时同样会失败，
+    # 之前这里打印 "Helm 3 installed successfully" 会让失败掩盖到后续步骤。
+    if [[ "${fallback_rc}" -ne 0 ]] || ! command -v helm &> /dev/null || ! helm version --short &> /dev/null; then
+        log_error "Helm installation failed (get-helm-3 exit code: ${fallback_rc})."
+        log_error "Install Helm ${desired} manually, or provide a local tarball:"
+        log_error "  HELM_LOCAL_TARBALL=/path/to/helm-${desired}-linux-${arch}.tar.gz"
+        return 1
+    fi
+
     # Do not auto-add Helm repos here: modules add repos only when a local chart is not available.
-    log_info "Helm 3 installed successfully"
+    log_info "✓ Helm installed: $(helm version --short 2>/dev/null | head -1 || echo 'unknown')"
 }
 
 # Docker CE .repo uses $releasever in paths. On HCE/openEuler, DNF expands that

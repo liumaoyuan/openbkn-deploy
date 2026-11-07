@@ -132,6 +132,39 @@ else
 fi
 
 echo ""
+echo "6. 部署脚本换行符检查"
+echo "----------------------------------------"
+# Windows 检出/打包会把脚本转成 CRLF；Linux 上 bash 会逐行报
+# `$'\r': command not found` 或 "near unexpected token"，且往往被误认为安装成功。
+DEPLOY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CRLF_FILES=()
+
+while IFS= read -r script_file; do
+    [[ -n "$script_file" ]] || continue
+    # 只看前 64KB：脚本都不会更长，且避免对大文件做全量扫描。
+    if [[ -n "$(head -c 65536 "$script_file" 2>/dev/null | tr -cd '\r')" ]]; then
+        CRLF_FILES+=("$script_file")
+    fi
+done < <(find "$DEPLOY_ROOT" -type f \( -name "*.sh" -o -name "get-helm-3" \) \
+             -not -path "*/build/*" -not -path "*/.git/*" 2>/dev/null)
+
+if [[ ${#CRLF_FILES[@]} -eq 0 ]]; then
+    echo "✓ 未发现 CRLF 换行脚本"
+elif [[ "${FIX_CRLF:-0}" == "1" ]]; then
+    for script_file in "${CRLF_FILES[@]}"; do
+        sed -i 's/\r$//' "$script_file"
+        echo "  ✓ 已修复: ${script_file#${DEPLOY_ROOT}/}"
+    done
+else
+    echo "✗ 发现 ${#CRLF_FILES[@]} 个 CRLF 换行脚本（Linux 上无法执行）："
+    for script_file in "${CRLF_FILES[@]}"; do
+        echo "    ${script_file#${DEPLOY_ROOT}/}"
+    done
+    echo "  修复方法: FIX_CRLF=1 bash $0"
+    ERRORS=$((ERRORS + 1))
+fi
+
+echo ""
 echo "=========================================="
 if [[ $ERRORS -eq 0 ]]; then
     echo "✓ 所有检查通过！环境已就绪"

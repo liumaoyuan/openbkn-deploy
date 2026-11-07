@@ -74,9 +74,83 @@ _mariadb_resolve_image_defaults() {
     fi
 }
 
+_mariadb_escape_sql_string() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\'/\'\'}"
+    printf '%s' "${value}"
+}
+
+# JSON Patch "add" replaces an existing array and creates a missing one, so the
+# same call covers StatefulSets that never had an args field.
+_mariadb_restore_statefulset_args() {
+    local ns="$1" sts="$2" args_json="$3"
+    kubectl -n "${ns}" patch statefulset "${sts}" --type=json \
+        -p "[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args\",\"value\":${args_json}}]" >/dev/null 2>&1
+}
+
+# `mariadb-admin ping` returns 0 whenever mysqld answers, even when the
+# credentials are rejected ("Access denied" still counts as alive). Using it as
+# a readiness probe hides an out-of-sync root password until the grant step
+# fails with a bare ERROR 1045. Probe with a real query instead.
+_mariadb_auth_probe() {
+    local ns="$1" pod="$2"
+    kubectl -n "${ns}" exec "${pod}" -- \
+        mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" --connect-timeout=5 \
+        -e 'SELECT 1' &>/dev/null
+}
+
+_mariadb_server_alive() {
+    local ns="$1" pod="$2"
+    kubectl -n "${ns}" exec "${pod}" -- mariadb-admin ping -h 127.0.0.1 &>/dev/null
+}
+
+_mariadb_root_password_from_secret() {
+    local ns="$1" encoded
+    encoded="$(kubectl -n "${ns}" get secret mariadb-auth -o jsonpath='{.data.mariadb-root-password}' 2>/dev/null)" || return 1
+    [[ -n "${encoded}" ]] || return 1
+    printf '%s' "${encoded}" | base64 -d 2>/dev/null
+}
+
+# A reused PVC keeps the root password it was initialized with; config.yaml and
+# the mariaadb-auth Secret may since have been regenerated. Say that plainly
+# instead of surfacing only "Failed to grant privileges".
+_mariadb_explain_auth_failure() {
+    local ns="$1"
+    local secret_root=""
+
+    secret_root="$(_mariadb_root_password_from_secret "${ns}" || true)"
+
+    log_error "MariaDB is running but rejected root authentication (ERROR 1045)."
+    log_error "The data directory was initialized with a different root password than the one in use now."
+    log_error "  Config file : ${CONFIG_YAML_PATH:-<unset>}"
+    log_error "  Config value: ${MARIADB_ROOT_PASSWORD:+<set, hidden>}${MARIADB_ROOT_PASSWORD:-<empty>}"
+    if [[ -n "${secret_root}" ]]; then
+        if [[ "${secret_root}" == "${MARIADB_ROOT_PASSWORD}" ]]; then
+            log_error "  Secret value: <set, hidden> — same as config, so the PVC is the odd one out"
+        else
+            log_error "  Secret value: <set, hidden> — differs from config.yaml"
+        fi
+    else
+        log_error "  Secret value: <mariadb-auth/mariadb-root-password not readable>"
+    fi
+    log_error ""
+    log_error "Fix it in one of two ways:"
+    log_error "  1) Reset the password to the configured value, keeping existing data:"
+    log_error "     bash deploy.sh mariadb repair-password"
+    log_error "  2) Reinitialize with empty data (only if no application data exists yet):"
+    log_error "     bash deploy.sh mariadb uninstall --force --delete-data"
+    log_error "     bash deploy.sh mariadb install"
+}
+
 # Grant permissions to MariaDB user (always run for internal MariaDB)
 grant_mariadb_user_permissions() {
     local ns="${MARIADB_NAMESPACE}"
+
+    if [[ -z "${MARIADB_USER}" || -z "${MARIADB_PASSWORD}" ]]; then
+        log_error "MariaDB application username or password is missing; cannot ensure remote access"
+        return 1
+    fi
 
     log_info "Granting permissions to MariaDB user '${MARIADB_USER}'..."
 
@@ -93,24 +167,159 @@ grant_mariadb_user_permissions() {
     log_info "Waiting for MariaDB to be ready (Pod: ${pod_name})..."
     local max_attempts=15
     local attempt=0
+    local ready="false"
     while [[ $attempt -lt $max_attempts ]]; do
-        if kubectl -n "${ns}" exec "${pod_name}" -- mariadb-admin ping -h localhost -u root -p"${MARIADB_ROOT_PASSWORD}" &>/dev/null; then
+        if _mariadb_auth_probe "${ns}" "${pod_name}"; then
+            ready="true"
             break
         fi
-        ((attempt++))
+        attempt=$((attempt + 1))
         sleep 2
     done
+    if [[ "${ready}" != "true" ]]; then
+        if _mariadb_server_alive "${ns}" "${pod_name}"; then
+            _mariadb_explain_auth_failure "${ns}"
+        else
+            log_error "MariaDB Pod '${pod_name}' did not become ready; cannot grant application access"
+        fi
+        return 1
+    fi
 
-    # Grant all privileges to the user
-    local sql_commands="GRANT ALL PRIVILEGES ON *.* TO '${MARIADB_USER}'@'%' WITH GRANT OPTION;"
+    local escaped_user escaped_password
+    escaped_user="$(_mariadb_escape_sql_string "${MARIADB_USER}")"
+    escaped_password="$(_mariadb_escape_sql_string "${MARIADB_PASSWORD}")"
+
+    # Existing persistent volumes may lack the remote account; create it before granting.
+    local sql_commands="CREATE USER IF NOT EXISTS '${escaped_user}'@'%' IDENTIFIED BY '${escaped_password}';"
+    sql_commands+=" ALTER USER '${escaped_user}'@'%' IDENTIFIED BY '${escaped_password}';"
+    sql_commands+=" GRANT ALL PRIVILEGES ON *.* TO '${escaped_user}'@'%';"
     sql_commands+=" FLUSH PRIVILEGES;"
 
     if echo "${sql_commands}" | kubectl -n "${ns}" exec -i "${pod_name}" -- mariadb -u root -p"${MARIADB_ROOT_PASSWORD}" 2>&1; then
-        log_info "✓ Successfully granted all privileges to '${MARIADB_USER}'@'%'"
+        log_info "✓ Ensured MariaDB access for '${MARIADB_USER}'@'%'"
     else
         log_error "✗ Failed to grant privileges to '${MARIADB_USER}'@'%'"
+        _mariadb_explain_auth_failure "${ns}" || true
         return 1
     fi
+}
+
+# Reused PVCs keep the root password they were first initialized with, so a
+# regenerated Secret/config.yaml locks the installer out. Restart MariaDB with
+# --skip-grant-tables once and write the configured passwords back.
+repair_mariadb_root_password() {
+    local ns="${MARIADB_NAMESPACE}"
+    local sts="mariadb"
+    local configured_root configured_user configured_password
+    local original_args
+
+    configured_root="$(config_yaml_dep_field rds root_password)"
+    configured_user="$(config_yaml_dep_field rds user)"
+    configured_password="$(config_yaml_dep_field rds password)"
+
+    if [[ -z "${configured_root}" ]]; then
+        log_error "MariaDB root_password is missing from ${CONFIG_YAML_PATH:-config.yaml}; nothing to reset it to."
+        return 1
+    fi
+    configured_user="${configured_user:-${MARIADB_USER:-openbkn}}"
+    configured_password="${configured_password:-${MARIADB_PASSWORD}}"
+    if [[ -z "${configured_password}" ]]; then
+        log_error "MariaDB password is missing from ${CONFIG_YAML_PATH:-config.yaml}; regenerate the config first."
+        return 1
+    fi
+
+    if ! kubectl -n "${ns}" get statefulset "${sts}" >/dev/null 2>&1; then
+        log_error "StatefulSet ${sts} not found in namespace ${ns}."
+        return 1
+    fi
+
+    # `-o jsonpath='{.spec...args}'` prints Go's slice form ("[a b]") which is not
+    # valid JSON. Read element by element and rebuild the array ourselves.
+    local -a orig_args=()
+    local arg_line
+    while IFS= read -r arg_line; do
+        [[ -n "${arg_line}" ]] && orig_args+=("${arg_line}")
+    done < <(kubectl -n "${ns}" get statefulset "${sts}" \
+        -o jsonpath='{range .spec.template.spec.containers[0].args[*]}{@}{"\n"}{end}' 2>/dev/null)
+
+    original_args="[]"
+    if [[ ${#orig_args[@]} -gt 0 ]]; then
+        local joined="" arg
+        for arg in "${orig_args[@]}"; do
+            arg="${arg//\\/\\\\}"
+            arg="${arg//\"/\\\"}"
+            joined+="\"${arg}\","
+        done
+        original_args="[${joined%,}]"
+    fi
+
+    log_info "Restarting MariaDB with --skip-grant-tables to reset credentials..."
+    if ! kubectl -n "${ns}" patch statefulset "${sts}" --type=json \
+        -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--skip-grant-tables"}]' >/dev/null; then
+        log_error "Failed to patch StatefulSet ${sts}; no changes were made."
+        return 1
+    fi
+
+    kubectl -n "${ns}" rollout status statefulset/"${sts}" --timeout=300s || {
+        log_error "MariaDB did not restart with --skip-grant-tables."
+        _mariadb_restore_statefulset_args "${ns}" "${sts}" "${original_args}"
+        return 1
+    }
+
+    local pod_name
+    pod_name=$(kubectl -n "${ns}" get pods -l app=mariadb -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [[ -z "${pod_name}" ]]; then
+        log_error "MariaDB Pod not found after restart."
+        _mariadb_restore_statefulset_args "${ns}" "${sts}" "${original_args}"
+        return 1
+    fi
+
+    local escaped_user escaped_password
+    escaped_user="$(_mariadb_escape_sql_string "${configured_user}")"
+    escaped_password="$(_mariadb_escape_sql_string "${configured_password}")"
+    local escaped_root
+    escaped_root="$(_mariadb_escape_sql_string "${configured_root}")"
+
+    # In --skip-grant-tables mode GRANT/ALTER USER only work after FLUSH PRIVILEGES.
+    local sql_commands="FLUSH PRIVILEGES;"
+    sql_commands+=" ALTER USER 'root'@'localhost' IDENTIFIED BY '${escaped_root}';"
+    sql_commands+=" CREATE USER IF NOT EXISTS '${escaped_user}'@'%' IDENTIFIED BY '${escaped_password}';"
+    sql_commands+=" ALTER USER '${escaped_user}'@'%' IDENTIFIED BY '${escaped_password}';"
+    sql_commands+=" GRANT ALL PRIVILEGES ON *.* TO '${escaped_user}'@'%';"
+    sql_commands+=" FLUSH PRIVILEGES;"
+
+    if ! echo "${sql_commands}" | kubectl -n "${ns}" exec -i "${pod_name}" -- mariadb -u root 2>&1; then
+        log_error "Failed to rewrite MariaDB credentials."
+        _mariadb_restore_statefulset_args "${ns}" "${sts}" "${original_args}"
+        return 1
+    fi
+    log_info "✓ Credentials rewritten for 'root'@'localhost' and '${configured_user}'@'%'"
+
+    # Restore normal startup args before verifying, so the check uses the real config.
+    if ! _mariadb_restore_statefulset_args "${ns}" "${sts}" "${original_args}"; then
+        log_error "Failed to restore original StatefulSet args; run: kubectl -n ${ns} rollout restart statefulset/${sts}"
+        return 1
+    fi
+
+    kubectl -n "${ns}" rollout status statefulset/"${sts}" --timeout=300s || {
+        log_error "MariaDB did not restart with the original args."
+        return 1
+    }
+
+    MARIADB_ROOT_PASSWORD="${configured_root}"
+    pod_name=$(kubectl -n "${ns}" get pods -l app=mariadb -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    local attempt
+    for attempt in $(seq 1 30); do
+        if _mariadb_auth_probe "${ns}" "${pod_name}"; then
+            log_info "✓ Root authentication now matches ${CONFIG_YAML_PATH:-config.yaml}"
+            return 0
+        fi
+        sleep 2
+    done
+
+    log_error "Credentials were rewritten but root authentication still fails; check the MariaDB logs:"
+    log_error "  kubectl -n ${ns} logs ${pod_name} --tail=50"
+    return 1
 }
 
 # Create additional databases and grant permissions to adp user
@@ -120,7 +329,7 @@ setup_mariadb_databases() {
     local mariadb_port="3306"
 
     # Always grant user permissions first
-    grant_mariadb_user_permissions
+    grant_mariadb_user_permissions || return 1
 
     # The data-migrator also creates these databases in current bundles. Keep
     # this idempotent fallback because MariaDB may be installed independently or
@@ -199,6 +408,23 @@ install_mariadb_helm() {
             limit_status=$?
             if [[ "${limit_status}" == "1" ]]; then
                 log_info "MariaDB is already installed without resource limits. Skipping upgrade."
+                if is_rds_internal; then
+                    local configured_user configured_password configured_root_password configured_database
+                    configured_user="$(config_yaml_dep_field rds user)"
+                    configured_password="$(config_yaml_dep_field rds password)"
+                    configured_root_password="$(config_yaml_dep_field rds root_password)"
+                    configured_database="$(config_yaml_dep_field rds database)"
+                    [[ -n "${configured_user}" ]] && MARIADB_USER="${configured_user}"
+                    [[ -n "${configured_password}" ]] && MARIADB_PASSWORD="${configured_password}"
+                    [[ -n "${configured_root_password}" ]] && MARIADB_ROOT_PASSWORD="${configured_root_password}"
+                    [[ -n "${configured_database}" ]] && MARIADB_DATABASE="${configured_database}"
+
+                    if [[ -z "${MARIADB_ROOT_PASSWORD}" ]]; then
+                        log_error "MariaDB root_password is missing from ${CONFIG_YAML_PATH}; cannot verify or repair access"
+                        return 1
+                    fi
+                    setup_mariadb_databases || return 1
+                fi
                 return 0
             fi
             log_error "Could not inspect MariaDB Helm manifest for resource limits; skipping upgrade."
@@ -334,7 +560,7 @@ install_mariadb_helm() {
     log_info "  Password: ${MARIADB_PASSWORD}"
 
     # Create additional databases and grant permissions
-    setup_mariadb_databases
+    setup_mariadb_databases || return 1
 
     sync_config_rds_for_in_cluster_mariadb
 
@@ -627,7 +853,7 @@ EOF
     log_info "  Password: ${MARIADB_PASSWORD}"
 
     # Create additional databases and grant permissions
-    setup_mariadb_databases
+    setup_mariadb_databases || return 1
 
     if [[ "${AUTO_GENERATE_CONFIG}" == "true" ]]; then
         log_info "Updating conf/config.yaml after MariaDB fresh install..."
@@ -767,7 +993,7 @@ install_mariadb_bitnami() {
     log_info "  Password: ${MARIADB_PASSWORD}"
 
     # Create additional databases and grant permissions
-    setup_mariadb_databases
+    setup_mariadb_databases || return 1
 
     if [[ "${fresh_install}" == "true" && "${AUTO_GENERATE_CONFIG}" == "true" ]]; then
         log_info "Updating conf/config.yaml after MariaDB fresh install..."
@@ -827,7 +1053,8 @@ check_bkn_foundry_not_installed() {
 uninstall_mariadb() {
     local ns="${MARIADB_NAMESPACE}"
     local force="${MARIADB_UNINSTALL_FORCE:-false}"
-    
+    local purge="${MARIADB_PURGE_PVC:-false}"
+
     # Check if bkn-foundry is installed unless --force is specified
     if [[ "${force}" != "true" ]]; then
         if ! check_bkn_foundry_not_installed; then
@@ -836,19 +1063,35 @@ uninstall_mariadb() {
     else
         log_warn "Force mode enabled: skipping bkn-foundry check. This may break existing services!"
     fi
-    
+
     log_info "Uninstalling MariaDB from namespace ${ns}..."
 
     # Use Helm to uninstall the release (automatically removes all managed resources)
     if helm status mariadb -n "${ns}" >/dev/null 2>&1; then
         log_info "Removing Helm release: mariadb"
         helm uninstall mariadb -n "${ns}"
+    else
+        log_info "Helm release mariadb not found, skipping Helm uninstall"
+    fi
+
+    # The PVC holds the root password the data directory was initialized with.
+    # Deleting it silently made `--delete-data` meaningless and turned every
+    # reinstall into a data-loss event, so make it explicit.
+    if [[ "${purge}" == "true" ]]; then
         log_warn "Deleting MariaDB PVCs (data loss!)"
         kubectl delete pvc -n "${ns}" -l app.kubernetes.io/instance=mariadb 2>/dev/null || true
         kubectl delete pvc -n "${ns}" -l app.kubernetes.io/name=mariadb 2>/dev/null || true
         kubectl delete pvc -n "${ns}" data-mariadb-0 2>/dev/null || true
     else
-        log_info "Helm release mariadb not found, skipping Helm uninstall"
+        local remaining
+        remaining="$(kubectl -n "${ns}" get pvc -l app.kubernetes.io/instance=mariadb -o name 2>/dev/null || true)"
+        remaining+="$(kubectl -n "${ns}" get pvc data-mariadb-0 -o name 2>/dev/null || true)"
+        if [[ -n "${remaining}" ]]; then
+            log_info "Keeping MariaDB data (PVC): ${remaining//$'\n'/ }"
+            log_info "Reinstalling reuses this data directory. If the root password in config.yaml"
+            log_info "differs from the one stored there, run: bash deploy.sh mariadb repair-password"
+            log_info "To wipe the data instead: bash deploy.sh mariadb uninstall --force --delete-data"
+        fi
     fi
 
     log_info "MariaDB uninstall done"
