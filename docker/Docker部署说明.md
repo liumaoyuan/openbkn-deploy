@@ -289,3 +289,54 @@ https://github.com/docker/compose/releases/download/v2.32.4/checksums.txt
 - 本栈未配置 TLS；如需对外网或不可信网络开放，请在前面加一层 HTTPS 反向代理。
 - OpenSearch 在开发栈中关闭了安全插件，不要在生产环境复用此配置。
 - 修改 `.env` 中的密码不会自动轮换已有数据库里的凭据，修改前先备份数据。
+
+## 附录 D：不用 init.py，手工编辑配置文件
+
+如果不想运行 Python，可以直接编辑已经生成好的运行时配置：
+
+```
+openbkn-deploy/build/docker/config/
+├── bkn-backend/bkn-backend-config.yaml
+├── ontology-query/ontology-query-config.yaml
+├── vega-backend/vega-backend-config.yaml
+├── bkn-safe/config.yaml
+├── agent-retrieval/
+├── agent-operator-integration/
+├── data-migrator-secret.yaml
+├── studio-config.js
+└── rendered.env
+```
+
+**前提**：这套文件必须已经生成过一次。全新目录没有它们，需要先在一台能运行 `init.py` 的机器上生成，或使用已经生成好的副本。
+
+### 最重要的规则
+
+`.env` 是**基础设施容器的权威来源**：
+
+- MariaDB、Redis、Kafka、MinIO 容器启动时用的密码来自 `.env`
+- 应用配置文件里的密码必须与 `.env` 一致
+
+所以**只改配置文件、不改 `.env` 会导致应用连不上数据库**。改密码时两边要同步。
+
+### 密码与文件对应关系
+
+| `.env` 变量 | 需要同步修改的配置文件 |
+|---|---|
+| `MARIADB_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`data-migrator-secret.yaml` |
+| `REDIS_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`agent-retrieval/agent-retrieval-secret.yaml` |
+| `KAFKA_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/mq_config.yaml` |
+| `OPENSEARCH_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml` |
+
+此外 `bkn-safe` 的数据库连接由 compose 直接通过 `SAFE_DB_*` 环境变量传入（取自 `MARIADB_PASSWORD`），改密码以 `.env` 为准。
+
+### 修改后如何生效
+
+配置文件是挂载进容器的，改完需要重启对应服务：
+
+```bash
+docker compose --env-file .env restart bkn-backend-svc ontology-query-svc vega-backend-svc
+# 或者整体重启
+docker compose --env-file .env restart
+```
+
+> 只改访问地址（IP / 端口）时**不需要动这些配置文件**，改 `.env` 里的 `OPENBKN_PUBLIC_BASE_URL` 和 `OPENBKN_HTTP_PORT` 后执行 `docker compose --env-file .env up -d` 即可。

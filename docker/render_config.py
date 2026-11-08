@@ -23,7 +23,8 @@ FOUNDY = ROOT / "bkn-foundry"
 
 GENERATED_HEADER = (
     "本文件由 docker/init.py 自动生成，重新渲染会覆盖手工修改。"
-    "如需调整访问地址或密码，请修改 docker/.env 后重新运行: python init.py"
+    "推荐修改 docker/.env 后重新运行: python init.py；"
+    "也可以直接编辑本文件，但必须同步修改 docker/.env 中对应的密码，否则容器仍会用旧凭据启动。"
 )
 
 
