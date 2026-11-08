@@ -116,8 +116,16 @@ def main() -> int:
         for key, value in overrides.items():
             print(f"{key}={value}")
 
+    # 内置纯 Python 版 PyYAML（vendor/yaml），目标机/开发机都不需要 pip 安装依赖。
+    child_env = dict(os.environ)
+    vendor = str(HERE / "vendor")
+    child_env["PYTHONPATH"] = vendor + (
+        os.pathsep + child_env["PYTHONPATH"] if child_env.get("PYTHONPATH") else ""
+    )
     result = subprocess.run(
-        [sys.executable, str(RENDERER), "--env-file", str(env_file)], check=False
+        [sys.executable, str(RENDERER), "--env-file", str(env_file)],
+        env=child_env,
+        check=False,
     )
     if result.returncode == 0 and args.public_base_url:
         print()

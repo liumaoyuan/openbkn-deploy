@@ -21,6 +21,11 @@ OUTPUT = HERE.parent / "build" / "docker" / "config"
 ROOT = HERE.parents[1]
 FOUNDY = ROOT / "bkn-foundry"
 
+GENERATED_HEADER = (
+    "本文件由 docker/init.py 自动生成，重新渲染会覆盖手工修改。"
+    "如需调整访问地址或密码，请修改 docker/.env 后重新运行: python init.py"
+)
+
 
 def parse_env(path: Path | None) -> dict[str, str]:
     values = dict(os.environ)
@@ -58,10 +63,8 @@ def random_password(length: int = 36) -> str:
 
 def yaml_dump(data: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
-    )
+    body = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    path.write_text(f"# {GENERATED_HEADER}\n{body}", encoding="utf-8")
 
 
 def load_template(relative: str) -> dict[str, Any]:
@@ -258,15 +261,18 @@ def render(env: dict[str, str]) -> None:
     # 本栈带 bkn-safe + hydra，Studio 必须自己跑 OAuth 登录门禁。
     # "hosted" 模式假设上游已经完成鉴权；这里没有，会导致 401 后反复刷新。
     (OUTPUT / "studio-config.js").write_text(
+        f'// {GENERATED_HEADER}\n'
         'window.__BKN_STUDIO_RUNTIME__ = { mode: "standalone" };\n',
         encoding="utf-8",
     )
     (OUTPUT / "rendered.env").write_text(
-        "\n".join(
+        f"# {GENERATED_HEADER}\n"
+        + "\n".join(
             f"{key}={value}"
             for key, value in sorted(env.items())
             if key.startswith(("BKN_TRACE_", "BKN_PROVENANCE_"))
-        ) + "\n",
+        )
+        + "\n",
         encoding="utf-8",
     )
     print(f"Generated deployment config at {OUTPUT}")

@@ -20,13 +20,8 @@
 ### 1. 准备环境
 
 - Docker Desktop（Windows/macOS 均可）
-- Python 3.10 或更高版本
-- PyYAML（只用来渲染配置，装一次即可）：
-
-```powershell
-python -m pip install pyyaml
-```
-
+- Python 3.8 或更高版本（只用来渲染配置）
+- **不需要 pip 安装任何包**：PyYAML 已内置在 `docker/vendor/` 下，离线也能用
 - 源码目录保持同级：`bkn-foundry`、`bkn-studio`、`openbkn-deploy`
 
 ### 2. 生成配置
@@ -44,6 +39,10 @@ python init.py --public-base-url http://192.168.1.100:8080
 - 把对外访问地址写成 `http://192.168.1.100:8080`
 - 自动把监听地址设为 `0.0.0.0`，允许其他机器访问
 - 在 `openbkn-deploy\build\docker\config` 下生成运行时配置
+
+生成的每个配置文件（`config.yaml`、`*secret.yaml`、`studio-config.js`、`rendered.env`）开头都有一行注释，说明它由 `init.py` 生成、重新渲染会覆盖。
+
+**需要改配置时，请改 `docker\.env` 再重新运行 `python init.py`，而不是手工改生成的文件**——生成文件里的数据库密码等字段与 `.env` 是配套的，手工只改一处会导致服务连不上。
 
 > 地址必须和内网机实际访问地址完全一致，否则登录会失败。
 > 只想在本机试用时，直接运行 `python init.py` 即可（默认 `http://localhost:8080`）。
