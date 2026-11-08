@@ -35,6 +35,12 @@ if (-not (Test-Path -LiteralPath ".env")) {
 }
 
 if (-not $List -and -not $SkipBuild) {
+  # compose 里运行期镜像设了 pull_policy: never（离线机缺失时立即报错），
+  # 所以打包机要显式拉取一次；--ignore-buildable 跳过本地构建的应用镜像。
+  Write-Host "== 拉取运行期镜像 =="
+  docker compose --env-file .env pull --ignore-buildable
+  if ($LASTEXITCODE -ne 0) { throw "docker compose pull 失败" }
+
   Write-Host "== 构建应用镜像 =="
   docker compose --env-file .env build
   if ($LASTEXITCODE -ne 0) { throw "docker compose build 失败" }

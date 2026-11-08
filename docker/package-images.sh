@@ -39,6 +39,11 @@ if [[ ! -f .env ]]; then
 fi
 
 if [[ "$LIST_ONLY" != "1" && "${SKIP_BUILD:-0}" != "1" ]]; then
+  # compose 里运行期镜像设了 pull_policy: never（离线机缺失时立即报错），
+  # 所以打包机要显式拉取一次；--ignore-buildable 跳过本地构建的应用镜像。
+  echo "== 拉取运行期镜像 =="
+  docker compose --env-file .env pull --ignore-buildable
+
   echo "== 构建应用镜像 =="
   docker compose --env-file .env build
 fi
