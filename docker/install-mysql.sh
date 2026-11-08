@@ -17,10 +17,7 @@
 #   MYSQL_ROOT_PASSWORD   root 密码；不提供则随机生成
 #   MYSQL_PASSWORD        业务账号密码；不提供则随机生成
 #
-# 密码和连接信息会写到 /root/openbkn-mysql-credentials.txt（权限 0600）。
-#
-# 注意：本脚本安装的是**宿主机上的 MySQL**，与 docker compose 栈自带的
-# mariadb 容器互相独立。只有需要外部数据库时才会用到它。
+# 密码和连接信息会写到 /root/mysql-credentials.txt（权限 0600）。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,7 +29,7 @@ CONFIG_FILE="/etc/openbkn-mysql.cnf"
 SERVICE_FILE="/etc/systemd/system/openbkn-mysql.service"
 ERROR_LOG="/var/log/mysql/error.log"
 SOCKET_PATH="/run/mysqld/mysqld.sock"
-CREDENTIALS_FILE="/root/openbkn-mysql-credentials.txt"
+CREDENTIALS_FILE="/root/mysql-credentials.txt"
 
 PORT="${MYSQL_PORT:-3306}"
 DB_NAME="${OPENBKN_DB_NAME:-openbkn}"
@@ -182,7 +179,7 @@ chmod 0644 "$CONFIG_FILE"
 
 cat >"$SERVICE_FILE" <<EOF
 [Unit]
-Description=OpenBKN MySQL 8
+Description=JiugeBKN MySQL 8
 After=network.target
 
 [Service]
@@ -308,9 +305,6 @@ echo "安装目录 : ${BASE_DIR}"
 echo "数据目录 : ${DATA_DIR}"
 echo "地址     : ${ADVERTISE_HOST}:${PORT}"
 echo "数据库   : ${DB_NAME}"
-echo "账号     : ${DB_USER}@%"
+echo "账号     : ${DB_USER}"
 echo "凭据文件 : ${CREDENTIALS_FILE}"
 echo ""
-echo "提示：本脚本安装的是宿主机 MySQL，当前 docker compose 栈默认仍使用内置的"
-echo "mariadb 容器，不会自动改用它。需要外部数据库的场景（例如与 k3s 部署共用）"
-echo "再使用本机地址与上面的账号密码。"
