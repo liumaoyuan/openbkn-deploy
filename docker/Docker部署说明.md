@@ -1,147 +1,292 @@
-# OpenBKN Docker Compose 部署说明
+# OpenBKN Docker 单机部署说明
 
-此 Compose 栈用于单机开发、功能演示和联调。它从当前工作区的 bkn-foundry 与 bkn-studio 源码构建镜像；首次构建需要可访问 Docker Hub、GHCR、Go modules 和 Python 包源。它不替代 Kubernetes/Helm 生产部署，也未配置 TLS、高可用、备份策略或生产级密钥管理。
+本文面向**非开发人员**，说明如何把 OpenBKN 部署到一台不能上外网的内网机器。
 
-## 环境要求
+整套流程分两台机器完成：
 
-- Docker Engine 或 Docker Desktop，包含 Docker Compose v2；Windows/macOS 使用 Linux 容器模式。
-- Python 3.10 或更高版本，以及 PyYAML。
-- 对象存储使用 PGSTY Silo（MinIO fork），兼容此开发栈所需的 S3 接口；Compose 固定使用已验证可拉取的镜像版本。
-- 建议至少 8 核 CPU、16 GiB 内存和 40 GiB 可用磁盘。OpenSearch、Kafka 和多项模型服务会占用较多资源。
-- 从工作区根目录保留 bkn-foundry、bkn-studio、openbkn-deploy 三个目录的相对位置。
+| 角色 | 要求 | 做什么 |
+|---|---|---|
+| 联网机 | 能上外网，装好 Docker Desktop 和 Python | 生成配置、打包镜像、下载安装包 |
+| 内网机 | 麒麟 V10（或任意 Linux），**不上网** | 安装 Docker、导入镜像、启动 |
 
-首次使用前安装 PyYAML 并生成本机密钥和运行时配置：
+建议内网机配置：8 核 CPU、16 GB 内存、40 GB 可用磁盘。
 
-~~~powershell
-Set-Location E:/workspace/qy/openbkn/openbkn-deploy/docker
-python -m pip install PyYAML
-python .\init.py
-docker compose --env-file .env config --quiet
-~~~
+> 这套 Compose 栈用于单机开发、演示和联调，不替代 Kubernetes/Helm 生产部署。
 
-初始化脚本首次创建本地 .env，后续不会覆盖它；生成的 .env 不应提交到版本库。把 OPENBKN_PUBLIC_BASE_URL 改为用户浏览器实际访问 Gateway 的 URL，并确保 OPENBKN_HTTP_PORT 与 URL 端口一致。默认仅监听本机 127.0.0.1:8080。需要局域网访问时，将绑定地址改为 0.0.0.0，并设置实际 IP 或域名。
+---
 
-## 启动与日常操作
+## 一、联网机：制作离线包
 
-从 openbkn-deploy/docker 执行：
+### 1. 准备环境
 
-~~~powershell
-docker compose --env-file .env up --build -d
+- Docker Desktop（Windows/macOS 均可）
+- Python 3.10 或更高版本
+- PyYAML（只用来渲染配置，装一次即可）：
+
+```powershell
+python -m pip install pyyaml
+```
+
+- 源码目录保持同级：`bkn-foundry`、`bkn-studio`、`openbkn-deploy`
+
+### 2. 生成配置
+
+把地址换成内网机实际要用的 IP 和端口：
+
+```powershell
+cd E:\workspace\qy\openbkn\openbkn-deploy\docker
+python init.py --public-base-url http://192.168.1.100:8080
+```
+
+这条命令会：
+
+- 首次运行时生成 `docker\.env`（自动填入随机密码）
+- 把对外访问地址写成 `http://192.168.1.100:8080`
+- 自动把监听地址设为 `0.0.0.0`，允许其他机器访问
+- 在 `openbkn-deploy\build\docker\config` 下生成运行时配置
+
+> 地址必须和内网机实际访问地址完全一致，否则登录会失败。
+> 只想在本机试用时，直接运行 `python init.py` 即可（默认 `http://localhost:8080`）。
+
+### 3. 打包镜像
+
+Git Bash：
+
+```powershell
+bash package-images.sh
+```
+
+或纯 PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\package-images.ps1
+```
+
+产物在 `openbkn-deploy\build\`：
+
+| 文件 | 说明 |
+|---|---|
+| `openbkn-images.tar` | 23 个镜像，约 2.8 GB |
+| `openbkn-images.tar.sha256` | 校验和 |
+| `images.txt` | 镜像清单 |
+
+### 4. 拷贝到内网机
+
+把整个 `openbkn-deploy` 目录拷到内网机（U 盘、移动硬盘、内网文件服务器均可）：
+
+```
+openbkn-deploy\
+├── docker\          ← 必须：compose.yml、.env、脚本、本说明
+└── build\           ← 必须：openbkn-images.tar、docker\config 运行时配置
+```
+
+> `docker\.env` 里有数据库、对象存储和初始管理员密码，请按敏感文件保管。
+
+---
+
+## 二、内网机：安装 Docker
+
+### 1. 确认安装文件
+
+安装包放在 `docker/app/` 下，按内网机架构选择（`uname -m` 输出 `x86_64` 或 `aarch64`）：
+
+```
+docker/app/
+├── amd64/
+│   ├── docker-28.5.2.tgz
+│   └── docker-compose-linux-x86_64
+└── arm64/
+    ├── docker-28.5.2.tgz
+    └── docker-compose-linux-aarch64
+```
+
+下载地址见文末「附录 B」，文件名保持原样即可，不需要重命名。
+`app/checksums.txt` 是 Compose 官方校验和，可用 `sha256sum` 核对。
+
+### 2. 执行安装
+
+在 `docker` 目录下按架构执行其中一条：
+
+```bash
+# x86_64
+sudo bash install-docker.sh app/amd64/docker-28.5.2.tgz app/amd64/docker-compose-linux-x86_64
+
+# aarch64（飞腾 / 鲲鹏）
+sudo bash install-docker.sh app/arm64/docker-28.5.2.tgz app/arm64/docker-compose-linux-aarch64
+```
+
+脚本会安装 Docker 引擎和 Compose 插件、写入日志轮转配置、启动服务，最后自动自检：
+
+```
+Docker Engine 28.5.2 (linux/amd64)
+Docker Compose version v2.32.4
+```
+
+看到这两行即安装成功。
+
+---
+
+## 三、内网机：导入镜像并启动
+
+```bash
+cd /path/to/openbkn-deploy/docker
+
+# 1. 导入并核对镜像（优先校验 sha256）
+bash load-images.sh
+
+# 2. 启动
+docker compose --env-file .env up -d
+```
+
+首次启动会自动初始化数据库和执行数据迁移，大约 1~3 分钟。查看进度：
+
+```bash
 docker compose --env-file .env ps
-docker compose --env-file .env logs -f gateway
-~~~
+```
 
-Compose 会先等待 MariaDB、PostgreSQL、Redis、Kafka、OpenSearch 和 MinIO 就绪，再执行 Hydra SQL migration 与 OpenBKN 数据库迁移，然后启动应用。Studio 入口为 http://localhost:8080/studio/；API、登录页和 OAuth/OIDC 公共端点由同一个 Gateway 提供。
+全部服务显示 `Up` 即启动完成。
 
-如果构建时报错 `failed to fetch anonymous token`、`auth.docker.io` 连接超时或多个基础镜像拉取被中断，这是 Docker Engine 到 Docker Hub 的网络连接问题，不是 Compose YAML 配置问题。先单独验证失败日志中提到的基础镜像：
+---
 
-~~~powershell
-docker pull docker.io/library/golang:1.26.9
-docker pull docker.io/library/python:3.11-slim
-docker pull docker.io/library/ubuntu:22.04
-~~~
+## 四、登录系统
 
-如果这些命令也在 `auth.docker.io` 超时，检查 Docker Desktop 的代理/VPN/DNS/防火墙设置，或配置组织提供的 Docker Hub Registry Mirror；`docker login` 不能修复 TCP 连接超时。确认镜像可拉取后再重试：
+浏览器打开：
 
-~~~powershell
-docker compose --env-file .env up --build -d
-~~~
+```
+http://192.168.1.100:8080/studio/
+```
 
-查看全部日志：
+- 用户名：`admin`
+- 初始密码：`docker/.env` 里的 `BKN_SAFE_INITIAL_PASSWORD`
 
-~~~powershell
-docker compose --env-file .env logs -f
-~~~
+查看密码：
 
-停止但保留数据：
+```bash
+grep BKN_SAFE_INITIAL_PASSWORD .env
+```
 
-~~~powershell
-docker compose --env-file .env down
-~~~
+> 首次登录后请尽快修改管理员密码。第一次打开页面如果显示异常，按 `Ctrl+Shift+R` 强制刷新一次。
 
-数据保存在 Compose 命名卷。重新构建应用镜像可执行 docker compose --env-file .env build，之后再执行 up -d。
+---
 
-## 离线 / 内网迁移
+## 五、日常操作
 
-把整套栈搬到不能访问外网的内网机器时，镜像不是全部。运行期还依赖本目录下的 compose 配置、渲染出来的运行时配置和一次性初始化（Hydra 客户端注册、数据库初始化），这些都不在镜像里。
+```bash
+cd /path/to/openbkn-deploy/docker
 
-### 构建来源
+docker compose --env-file .env ps                  # 查看状态
+docker compose --env-file .env logs -f gateway     # 查看网关日志
+docker compose --env-file .env restart             # 重启全部服务
+docker compose --env-file .env down                # 停止（保留数据）
+docker compose --env-file .env up -d               # 再次启动
+```
 
-应用镜像由 `docker compose build` 从**本机工作区源码**构建（`../../bkn-foundry`、`../../bkn-studio`），不使用 GitHub Actions 发布的镜像。也就是说，打出来的镜像包含当前工作区的代码状态（包括未提交的改动）。如果需要可复现的产物，应当先在干净检出的对应分支上构建。
+> **不要执行 `docker compose down -v`**，它会删除所有数据卷，数据无法恢复。
 
-### 在联网机器上打包
+### 版本升级
 
-~~~powershell
-cd openbkn-deploy/docker
+1. 在联网机用新版本源码重新执行第 2、3 步，生成新的镜像包和配置；
+2. 把新包拷到内网机，`bash load-images.sh` 导入；
+3. `docker compose --env-file .env up -d` 重建容器。
 
-# 方式一：Git Bash
-bash package-images.sh              # 构建 + 导出全部镜像
-bash package-images.sh --list       # 只查看清单与体积
+数据库升级由 `data-migrator` 自动完成，**命名卷里的数据会保留**。
 
-# 方式二：纯 PowerShell（无需 Git Bash）
-powershell -File .\package-images.ps1
-powershell -File .\package-images.ps1 -List
-~~~
+---
 
-> PowerShell 里直接输入 `bash` 可能命中 WSL 的启动器（`C:\Windows\System32\bash.exe`）。若 WSL 没有可用发行版，会报 `execvpe(/bin/bash) failed: No such file or directory`——改用 Git Bash 的完整路径，或直接用 `.ps1` 版本。
->
-> Windows 客户端默认执行策略为 `Restricted`，脚本可能被拦截。可选：`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`（一次性），或单次运行加 `-ExecutionPolicy Bypass`。
+## 六、常见问题
 
-产物（默认写到 `openbkn-deploy/build/`）：
+**页面打不开**
 
-- `openbkn-images.tar`：23 个镜像（14 个应用镜像 + 9 个运行期依赖），约 2.8 GB
-- `openbkn-images.tar.sha256`：校验和
-- `images.txt`：镜像清单
+1. 确认内网机防火墙放行了 8080 端口；
+2. 确认 `.env` 里 `OPENBKN_BIND_ADDRESS=0.0.0.0`；
+3. 确认浏览器访问的地址与 `OPENBKN_PUBLIC_BASE_URL` 完全一致（IP、端口、http/https）。
 
-应用镜像名固定为 `openbkn/<service>:<tag>`，`<tag>` 由 `.env` 中的 `OPENBKN_IMAGE_TAG` 决定，默认 `local`。
+**Docker 起不来**
 
-### 在内网机器上导入
+```bash
+journalctl -u docker -n 100 --no-pager
+```
 
-需要提前准备 Docker Engine、Docker Compose v2，以及同架构的运行环境（`docker version` 查看 `Os/Arch`）。
+麒麟 V10 还要确认 KySec 没有拦截 `dockerd`、`containerd` 或相关内核模块。
 
-~~~powershell
-cd openbkn-deploy/docker
+**登录失败 / 页面反复刷新**
 
-# Git Bash
-bash load-images.sh                 # 校验 sha256 → docker load → 逐个核对镜像
+几乎都是访问地址与 `OPENBKN_PUBLIC_BASE_URL` 不一致导致。
 
-# 或者纯 PowerShell
-powershell -File .\load-images.ps1
-~~~
+改地址最简单的方式是直接在内网机编辑 `docker/.env`：
 
-然后生成配置并启动：
+```bash
+# 修改这两行（端口有变化时一起改）
+OPENBKN_PUBLIC_BASE_URL=http://192.168.1.100:8080
+OPENBKN_HTTP_PORT=8080
 
-~~~bash
-cp .env.example .env
-# 修改 OPENBKN_BIND_ADDRESS=0.0.0.0 和 OPENBKN_PUBLIC_BASE_URL=http://<内网IP>:8080
-python3 init.py
-docker compose --env-file .env up -d      # 不要加 --build
-~~~
+docker compose --env-file .env up -d
+```
 
-### 注意事项
+这个地址是容器启动时读取的，不需要重新渲染配置。
 
-- **Hydra 的 OAuth 客户端存在 PostgreSQL 数据卷里**。内网机器上必须让数据卷从空开始，`hydra-client-seed` 才会按新的 `OPENBKN_PUBLIC_BASE_URL` 注册 `openbkn-studio`；拷贝旧数据卷会导致回调地址仍是旧 URL，登录失败。
-- **沙箱执行模板镜像不在打包范围内**：`sandbox-control-plane` 运行时会按自身配置拉取执行模板镜像，内网环境需要自备并改配置，否则代码执行类功能不可用。
-- **模型服务需要单独准备**：`mf-model-*` 只是管理面，推理走你在 Studio 里配置的模型提供商。
-- 修改 `OPENBKN_PUBLIC_BASE_URL` 后需要重新执行 `init.py`，并重启 `gateway`、`bkn-safe`、`studio`、`hydra`。
+只有在**同时改动了密码类配置**（数据库、Redis、MinIO 等）时，才需要回联网机重新执行 `python init.py` 并重新打包配置。
 
-## 安全与限制
+**磁盘空间不足**
 
-- Gateway 是唯一发布到宿主机的服务端口。数据库、Kafka、Redis、OpenSearch、MinIO、Hydra 管理端及内部 API 只在 Docker 网络内可达。
-- OpenSearch 在此开发栈中关闭 Security Plugin，且没有映射宿主机端口，不应在生产或不可信网络中直接复用该配置。
-- Sandbox 控制面挂载 Docker Socket，以便创建执行容器。能访问 Docker Socket 的进程通常拥有宿主机级控制权限；不要在共享主机或生产环境运行此开发 Compose。
-- Sandbox 执行镜像由控制面按其默认配置拉取。隔离执行还依赖宿主机 Docker 的安全配置；Compose 中禁用了 Bubblewrap，仅供本地开发测试。
-- MinIO 和 Hydra 使用生成的本地密钥；修改 .env 中密钥不会自动轮换已初始化数据库/存储中的凭据。妥善保管 .env，轮换前先备份数据并按服务文档执行。
-- Hydra 对浏览器声明的 Issuer 和 Studio 回调依赖 OPENBKN_PUBLIC_BASE_URL。更改访问地址后，重新生成配置并重建或重启相关服务。
-- 应用服务的健康检查不完整；docker compose ps 显示容器运行不代表所有业务流程已验收。模型服务还需要在 Studio 中配置实际模型提供商和凭据。
-- 默认 Trace Evidence 内容存储为进程内存；单机测试可用，重启后会丢失。不要将其当作审计归档。
+镜像约 2.8 GB，运行后数据库、对象存储、日志还会继续增长，建议预留 40 GB 以上。
 
-## 数据维护
+**端口被占用**
 
-先停止服务，再使用数据库与对象存储自身工具备份 named volumes。删除卷会永久删除对应数据库、Kafka、OpenSearch、Redis 或 MinIO 数据。
+修改 `.env` 里的 `OPENBKN_HTTP_PORT`，同时同步修改 `OPENBKN_PUBLIC_BASE_URL` 的端口，然后重新执行 `init.py`。
 
-~~~
-docker compose --env-file .env down
-~~~
+---
 
-不要执行 docker compose down -v，除非明确要清空所有本地数据。
+## 附录 A：目录结构
+
+```
+openbkn-deploy/
+├── docker/
+│   ├── compose.yml              服务编排
+│   ├── .env                     本机配置与密码（不要外传）
+│   ├── gateway.conf            网关路由
+│   ├── mariadb-init.sql        数据库初始化
+│   ├── init.py                 生成配置（仅联网机需要）
+│   ├── render_config.py        渲染配置（仅联网机需要）
+│   ├── package-images.sh/.ps1  打包镜像（联网机）
+│   ├── load-images.sh/.ps1     导入镜像（内网机）
+│   ├── install-docker.sh       安装 Docker（内网机）
+│   └── Docker部署说明.md        本文档
+└── build/
+    ├── openbkn-images.tar      镜像包
+    ├── openbkn-images.tar.sha256
+    ├── images.txt
+    └── docker/config/          运行时配置（不要手动改）
+```
+
+## 附录 B：安装包下载地址
+
+**Docker 静态包（28.5.2）**
+
+```
+# x86_64
+https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/static/stable/x86_64/docker-28.5.2.tgz
+https://mirrors.ustc.edu.cn/docker-ce/linux/static/stable/x86_64/docker-28.5.2.tgz
+
+# aarch64（飞腾 / 鲲鹏）
+https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/static/stable/aarch64/docker-28.5.2.tgz
+https://mirrors.ustc.edu.cn/docker-ce/linux/static/stable/aarch64/docker-28.5.2.tgz
+```
+
+**Compose 插件（v2.32.4）**
+
+```
+https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
+https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-aarch64
+https://github.com/docker/compose/releases/download/v2.32.4/checksums.txt
+```
+
+下载后可用 `checksums.txt` 核对完整性，并把文件重命名为 `docker-compose`。
+
+## 附录 C：安全提醒
+
+- 只有 Gateway 的 8080 端口暴露给宿主机，数据库、Redis、Kafka、OpenSearch 等只在 Docker 网络内可见。
+- `.env` 保存所有密码，连同内网机一起按敏感资料管理。
+- 本栈未配置 TLS；如需对外网或不可信网络开放，请在前面加一层 HTTPS 反向代理。
+- OpenSearch 在开发栈中关闭了安全插件，不要在生产环境复用此配置。
+- 修改 `.env` 中的密码不会自动轮换已有数据库里的凭据，修改前先备份数据。
