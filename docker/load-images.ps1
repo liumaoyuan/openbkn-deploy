@@ -59,4 +59,4 @@ if ($missing -gt 0) { throw "镜像不完整，请重新打包或检查 tar 包"
 
 $server = docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
 Write-Host "== 全部镜像就绪（本机架构: $server）=="
-Write-Host "下一步: 配置 .env → python .\init.py → docker compose --env-file .env up -d"
+Write-Host "下一步: 确认 .env 与 config/ 已填写 → docker compose --env-file .env up -d"

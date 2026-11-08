@@ -1,0 +1,36 @@
+# 手工维护的运行时配置：把 CHANGE_ME_* 替换成 docker/.env 中同名变量的值。
+# 修改后重启对应服务: docker compose --env-file .env restart <service>
+http_addr: :3000
+seed_on_start: false
+db:
+  type: MySQL
+  host: 127.0.0.1
+  port: 3307
+  user: root
+  password: <mariadb-password>
+  name: safe
+hydra:
+  admin_url: http://127.0.0.1:4445
+  public_url: https://<your-host>
+upstreams:
+  bkn_backend:
+    base_url: http://127.0.0.1:13014
+    timeout: 3s
+  bkn_agent:
+    base_url: http://127.0.0.1:30800
+    timeout: 3s
+  execution_factory:
+    base_url: http://127.0.0.1:13014
+    timeout: 3s
+  vega_backend:
+    base_url: http://127.0.0.1:13014
+    timeout: 3s
+  ontology_query:
+    base_url: http://127.0.0.1:13018
+    timeout: 3s
+ldap:
+  url: ''
+  bind_dn: ''
+  bind_password: ''
+  base_dn: ''
+  user_filter: (uid=%s)

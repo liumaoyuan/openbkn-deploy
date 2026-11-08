@@ -6,12 +6,13 @@
 
 | 角色 | 要求 | 做什么 |
 |---|---|---|
-| 联网机 | 能上外网，装好 Docker Desktop 和 Python | 生成配置、打包镜像、下载安装包 |
+| 联网机 | 能上外网，装好 Docker Desktop | 填写配置、打包镜像、下载安装包 |
 | 内网机 | 麒麟 V10（或任意 Linux），**不上网** | 安装 Docker、导入镜像、启动 |
 
 建议内网机配置：8 核 CPU、16 GB 内存、40 GB 可用磁盘。
 
 > 这套 Compose 栈用于单机开发、演示和联调，不替代 Kubernetes/Helm 生产部署。
+> 全部配置都通过**编辑文本文件**完成，不需要安装 Python 或任何其他运行时。
 
 ---
 
@@ -20,32 +21,68 @@
 ### 1. 准备环境
 
 - Docker Desktop（Windows/macOS 均可）
-- Python 3.8 或更高版本（只用来渲染配置）
-- **不需要 pip 安装任何包**：PyYAML 已内置在 `docker/vendor/` 下，离线也能用
 - 源码目录保持同级：`bkn-foundry`、`bkn-studio`、`openbkn-deploy`
 
-### 2. 生成配置
+### 2. 填写配置
 
-把地址换成内网机实际要用的 IP 和端口：
+配置分两部分，**两边的密码必须一致**：
+
+| 位置 | 作用 | 谁来读 |
+|---|---|---|
+| `docker/.env` | 基础设施容器的密码 | MariaDB、Redis、Kafka、MinIO 等容器 |
+| `docker/config/` | 应用服务自己的配置文件 | 后端服务、Agent、Studio |
+
+#### 2.1 填写 `.env`
 
 ```powershell
 cd E:\workspace\qy\openbkn\openbkn-deploy\docker
-python init.py --public-base-url http://192.168.1.100:8080
+Copy-Item .env.example .env
 ```
 
-这条命令会：
+打开 `.env`，把所有 `CHANGE_ME_*` 替换成你自己的强密码。
 
-- 首次运行时生成 `docker\.env`（自动填入随机密码）
-- 把对外访问地址写成 `http://192.168.1.100:8080`
-- 自动把监听地址设为 `0.0.0.0`，允许其他机器访问
-- 在 `openbkn-deploy\build\docker\config` 下生成运行时配置
+需要生成随机密码时：
 
-生成的每个配置文件（`config.yaml`、`*secret.yaml`、`studio-config.js`、`rendered.env`）开头都有一行注释，说明它由 `init.py` 生成、重新渲染会覆盖。
+```powershell
+# PowerShell：生成 32 位随机字符串
+-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 32 | ForEach-Object {[char]$_})
+```
 
-**需要改配置时，请改 `docker\.env` 再重新运行 `python init.py`，而不是手工改生成的文件**——生成文件里的数据库密码等字段与 `.env` 是配套的，手工只改一处会导致服务连不上。
+```bash
+# Linux / macOS / Git Bash
+openssl rand -base64 24
+```
 
-> 地址必须和内网机实际访问地址完全一致，否则登录会失败。
-> 只想在本机试用时，直接运行 `python init.py` 即可（默认 `http://localhost:8080`）。
+注意 `OSS_CRYPTO_AES_KEY` 需要 32 个字符。
+
+同时修改访问地址：
+
+```
+OPENBKN_PUBLIC_BASE_URL=http://192.168.1.100:8080
+OPENBKN_BIND_ADDRESS=0.0.0.0
+```
+
+#### 2.2 填写 `config/`
+
+```powershell
+Copy-Item -Recurse config.example config
+```
+
+`config/` 下有 15 个配置文件，把里面的 `CHANGE_ME_*` 换成**与 `.env` 相同的值**。
+
+每个文件开头都有注释说明用途。密码对应关系：
+
+| `.env` 变量 | 要同步填写的配置文件 |
+|---|---|
+| `MARIADB_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`data-migrator-secret.yaml` |
+| `REDIS_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`agent-retrieval/agent-retrieval-secret.yaml` |
+| `KAFKA_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/mq_config.yaml` |
+| `OPENSEARCH_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml` |
+| `BKN_TRACE_*` / `BKN_PROVENANCE_*` | `rendered.env` |
+
+> `bkn-safe` 的数据库连接由 compose 通过 `SAFE_DB_*` 环境变量传入（取自 `MARIADB_PASSWORD`），不需要改它的配置文件。
+
+`config/` 和 `.env` 已被 `.gitignore` 忽略，不会被提交。
 
 ### 3. 打包镜像
 
@@ -71,15 +108,16 @@ powershell -ExecutionPolicy Bypass -File .\package-images.ps1
 
 ### 4. 拷贝到内网机
 
-把整个 `openbkn-deploy` 目录拷到内网机（U 盘、移动硬盘、内网文件服务器均可）：
+把整个 `openbkn-deploy` 目录拷到内网机：
 
 ```
 openbkn-deploy\
-├── docker\          ← 必须：compose.yml、.env、脚本、本说明
-└── build\           ← 必须：openbkn-images.tar、docker\config 运行时配置
+├── docker\              ← compose.yml、.env、config\、脚本、本说明
+│   └── app\             ← Docker 安装包（见第二章）
+└── build\               ← openbkn-images.tar 等镜像包
 ```
 
-> `docker\.env` 里有数据库、对象存储和初始管理员密码，请按敏感文件保管。
+> `.env` 和 `config\` 里都是密码，请按敏感文件保管。
 
 ---
 
@@ -99,8 +137,7 @@ docker/app/
     └── docker-compose-linux-aarch64
 ```
 
-下载地址见文末「附录 B」，文件名保持原样即可，不需要重命名。
-`app/checksums.txt` 是 Compose 官方校验和，可用 `sha256sum` 核对。
+下载地址见文末「附录 B」。`app/checksums.txt` 是 Compose 官方校验和，可用 `sha256sum` 核对。
 
 ### 2. 执行安装
 
@@ -145,6 +182,9 @@ docker compose --env-file .env ps
 
 全部服务显示 `Up` 即启动完成。
 
+> 如果之前改过 `docker/config/` 或 `.env`，重启对应服务即可生效：
+> `docker compose --env-file .env restart`
+
 ---
 
 ## 四、登录系统
@@ -184,11 +224,12 @@ docker compose --env-file .env up -d               # 再次启动
 
 ### 版本升级
 
-1. 在联网机用新版本源码重新执行第 2、3 步，生成新的镜像包和配置；
-2. 把新包拷到内网机，`bash load-images.sh` 导入；
+1. 在联网机用新版本源码重新打包镜像；
+2. 把新镜像包拷到内网机，`bash load-images.sh` 导入；
 3. `docker compose --env-file .env up -d` 重建容器。
 
 数据库升级由 `data-migrator` 自动完成，**命名卷里的数据会保留**。
+`docker/.env` 与 `docker/config/` 可以继续沿用，除非新版本说明里要求新增配置项。
 
 ---
 
@@ -200,6 +241,19 @@ docker compose --env-file .env up -d               # 再次启动
 2. 确认 `.env` 里 `OPENBKN_BIND_ADDRESS=0.0.0.0`；
 3. 确认浏览器访问的地址与 `OPENBKN_PUBLIC_BASE_URL` 完全一致（IP、端口、http/https）。
 
+**登录失败 / 页面反复刷新**
+
+几乎都是访问地址与 `OPENBKN_PUBLIC_BASE_URL` 不一致导致：
+
+```bash
+# 修改 .env 后重启
+docker compose --env-file .env up -d
+```
+
+**服务报“Access denied”“认证失败”**
+
+`.env` 与 `config/` 里的密码不一致。按第一章的对应关系表逐项核对，改完重启对应服务。
+
 **Docker 起不来**
 
 ```bash
@@ -208,31 +262,13 @@ journalctl -u docker -n 100 --no-pager
 
 麒麟 V10 还要确认 KySec 没有拦截 `dockerd`、`containerd` 或相关内核模块。
 
-**登录失败 / 页面反复刷新**
-
-几乎都是访问地址与 `OPENBKN_PUBLIC_BASE_URL` 不一致导致。
-
-改地址最简单的方式是直接在内网机编辑 `docker/.env`：
-
-```bash
-# 修改这两行（端口有变化时一起改）
-OPENBKN_PUBLIC_BASE_URL=http://192.168.1.100:8080
-OPENBKN_HTTP_PORT=8080
-
-docker compose --env-file .env up -d
-```
-
-这个地址是容器启动时读取的，不需要重新渲染配置。
-
-只有在**同时改动了密码类配置**（数据库、Redis、MinIO 等）时，才需要回联网机重新执行 `python init.py` 并重新打包配置。
-
 **磁盘空间不足**
 
 镜像约 2.8 GB，运行后数据库、对象存储、日志还会继续增长，建议预留 40 GB 以上。
 
 **端口被占用**
 
-修改 `.env` 里的 `OPENBKN_HTTP_PORT`，同时同步修改 `OPENBKN_PUBLIC_BASE_URL` 的端口，然后重新执行 `init.py`。
+修改 `.env` 里的 `OPENBKN_HTTP_PORT`，同时同步修改 `OPENBKN_PUBLIC_BASE_URL` 的端口，然后 `docker compose --env-file .env up -d`。
 
 ---
 
@@ -242,20 +278,21 @@ docker compose --env-file .env up -d
 openbkn-deploy/
 ├── docker/
 │   ├── compose.yml              服务编排
-│   ├── .env                     本机配置与密码（不要外传）
-│   ├── gateway.conf            网关路由
-│   ├── mariadb-init.sql        数据库初始化
-│   ├── init.py                 生成配置（仅联网机需要）
-│   ├── render_config.py        渲染配置（仅联网机需要）
-│   ├── package-images.sh/.ps1  打包镜像（联网机）
-│   ├── load-images.sh/.ps1     导入镜像（内网机）
-│   ├── install-docker.sh       安装 Docker（内网机）
+│   ├── .env.example             配置模板（复制为 .env 后填写）
+│   ├── .env                     本机配置与密码（不提交）
+│   ├── config.example/          运行时配置模板（复制为 config 后填写）
+│   ├── config/                  实际运行时配置（不提交）
+│   ├── app/                     Docker 安装包（按架构）
+│   ├── gateway.conf             网关路由
+│   ├── mariadb-init.sql         数据库初始化
+│   ├── package-images.sh/.ps1   打包镜像（联网机）
+│   ├── load-images.sh/.ps1      导入镜像（内网机）
+│   ├── install-docker.sh        安装 Docker（内网机）
 │   └── Docker部署说明.md        本文档
 └── build/
-    ├── openbkn-images.tar      镜像包
+    ├── openbkn-images.tar       镜像包
     ├── openbkn-images.tar.sha256
-    ├── images.txt
-    └── docker/config/          运行时配置（不要手动改）
+    └── images.txt
 ```
 
 ## 附录 B：安装包下载地址
@@ -280,63 +317,12 @@ https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux
 https://github.com/docker/compose/releases/download/v2.32.4/checksums.txt
 ```
 
-下载后可用 `checksums.txt` 核对完整性，并把文件重命名为 `docker-compose`。
+下载后可用 `checksums.txt` 核对完整性。
 
 ## 附录 C：安全提醒
 
 - 只有 Gateway 的 8080 端口暴露给宿主机，数据库、Redis、Kafka、OpenSearch 等只在 Docker 网络内可见。
-- `.env` 保存所有密码，连同内网机一起按敏感资料管理。
+- `.env` 与 `config/` 保存所有密码，连同内网机一起按敏感资料管理。
 - 本栈未配置 TLS；如需对外网或不可信网络开放，请在前面加一层 HTTPS 反向代理。
 - OpenSearch 在开发栈中关闭了安全插件，不要在生产环境复用此配置。
-- 修改 `.env` 中的密码不会自动轮换已有数据库里的凭据，修改前先备份数据。
-
-## 附录 D：不用 init.py，手工编辑配置文件
-
-如果不想运行 Python，可以直接编辑已经生成好的运行时配置：
-
-```
-openbkn-deploy/build/docker/config/
-├── bkn-backend/bkn-backend-config.yaml
-├── ontology-query/ontology-query-config.yaml
-├── vega-backend/vega-backend-config.yaml
-├── bkn-safe/config.yaml
-├── agent-retrieval/
-├── agent-operator-integration/
-├── data-migrator-secret.yaml
-├── studio-config.js
-└── rendered.env
-```
-
-**前提**：这套文件必须已经生成过一次。全新目录没有它们，需要先在一台能运行 `init.py` 的机器上生成，或使用已经生成好的副本。
-
-### 最重要的规则
-
-`.env` 是**基础设施容器的权威来源**：
-
-- MariaDB、Redis、Kafka、MinIO 容器启动时用的密码来自 `.env`
-- 应用配置文件里的密码必须与 `.env` 一致
-
-所以**只改配置文件、不改 `.env` 会导致应用连不上数据库**。改密码时两边要同步。
-
-### 密码与文件对应关系
-
-| `.env` 变量 | 需要同步修改的配置文件 |
-|---|---|
-| `MARIADB_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`data-migrator-secret.yaml` |
-| `REDIS_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`agent-retrieval/agent-retrieval-secret.yaml` |
-| `KAFKA_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/mq_config.yaml` |
-| `OPENSEARCH_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml` |
-
-此外 `bkn-safe` 的数据库连接由 compose 直接通过 `SAFE_DB_*` 环境变量传入（取自 `MARIADB_PASSWORD`），改密码以 `.env` 为准。
-
-### 修改后如何生效
-
-配置文件是挂载进容器的，改完需要重启对应服务：
-
-```bash
-docker compose --env-file .env restart bkn-backend-svc ontology-query-svc vega-backend-svc
-# 或者整体重启
-docker compose --env-file .env restart
-```
-
-> 只改访问地址（IP / 端口）时**不需要动这些配置文件**，改 `.env` 里的 `OPENBKN_PUBLIC_BASE_URL` 和 `OPENBKN_HTTP_PORT` 后执行 `docker compose --env-file .env up -d` 即可。
+- 修改密码不会自动轮换已有数据库里的凭据，修改前先备份数据。

@@ -1,0 +1,19 @@
+# 手工维护的运行时配置：把 CHANGE_ME_* 替换成 docker/.env 中同名变量的值。
+# 修改后重启对应服务: docker compose --env-file .env restart <service>
+auth:
+  mechanism: PLAIN
+  password: CHANGE_ME_KAFKA_PASSWORD
+  username: openbkn
+connectorType: kafka
+deployTrait:
+  aiid: 1
+  cid: 21
+  trait:
+    status: 4
+    timeout: 0
+  version: ''
+mqHost: kafka
+mqLookupdHost: ''
+mqLookupdPort: 0
+mqPort: 9092
+mqType: kafka

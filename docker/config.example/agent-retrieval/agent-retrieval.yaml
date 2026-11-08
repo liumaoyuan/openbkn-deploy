@@ -1,0 +1,65 @@
+# 手工维护的运行时配置：把 CHANGE_ME_* 替换成 docker/.env 中同名变量的值。
+# 修改后重启对应服务: docker compose --env-file .env restart <service>
+project:
+  language: zh-CN
+  host: 0.0.0.0
+  port: 30779
+  sandbox_port: 30780
+  logger_level: 1
+  name: agent-retrieval
+  pod_id: docker-compose
+  machine_id: ''
+  debug: false
+concept_search_config:
+  concept_recall_size: 100
+  knn_k: 300
+  schema_read_timeout_ms: 5000
+instance_search_config:
+  min_reranker_score: 0
+  min_object_type_score_ratio: 0
+oauth:
+  public_host: bkn-safe-hydra-public
+  public_port: 4444
+  public_protocol: http
+  admin_host: bkn-safe-hydra-admin
+  admin_port: 4445
+  admin_protocol: http
+  admin_prefix: /admin
+bkn_backend:
+  private_protocol: http
+  private_host: bkn-backend-svc
+  private_port: 13014
+ontology_query:
+  private_protocol: http
+  private_host: ontology-query-svc
+  private_port: 13018
+vega:
+  private_protocol: http
+  private_host: vega-backend-svc
+  private_port: 13014
+data_retrieval:
+  private_protocol: http
+  private_host: data-retrieval.openbkn
+  private_port: 9100
+operator_integration:
+  private_protocol: http
+  private_host: agent-operator-integration
+  private_port: 9000
+bkn_safe:
+  private_protocol: http
+  private_host: bkn-safe
+  private_port: 3000
+auth:
+  resource_filter_chunk_size: 200
+redis:
+  connectType: standalone
+  enableSSL: false
+  secretName: ''
+  caName: ''
+  certName: ''
+  keyName: ''
+  poolSize: 10
+mf_model_api:
+  private_protocol: http
+  private_host: mf-model-api
+  private_port: 9898

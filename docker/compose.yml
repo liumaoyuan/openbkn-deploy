@@ -278,7 +278,7 @@ services:
       - --secret-config
       - /etc/data-migrator/secret-config.yaml
     volumes:
-      - ../build/docker/config/data-migrator-secret.yaml:/etc/data-migrator/secret-config.yaml:ro
+      - ./config/data-migrator-secret.yaml:/etc/data-migrator/secret-config.yaml:ro
     environment:
       TZ: Asia/Shanghai
       LANG: en_US.UTF-8
@@ -299,8 +299,8 @@ services:
     environment:
       <<: *app-env
     volumes:
-      - ../build/docker/config/bkn-backend/bkn-backend-config.yaml:/opt/bkn-backend/config/bkn-backend-config.yaml:ro
-      - ../build/docker/config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
+      - ./config/bkn-backend/bkn-backend-config.yaml:/opt/bkn-backend/config/bkn-backend-config.yaml:ro
+      - ./config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
     restart: unless-stopped
     networks: [openbkn]
 
@@ -317,8 +317,8 @@ services:
     environment:
       <<: *app-env
     volumes:
-      - ../build/docker/config/ontology-query/ontology-query-config.yaml:/opt/ontology-query/config/ontology-query-config.yaml:ro
-      - ../build/docker/config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
+      - ./config/ontology-query/ontology-query-config.yaml:/opt/ontology-query/config/ontology-query-config.yaml:ro
+      - ./config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
     restart: unless-stopped
     networks: [openbkn]
 
@@ -337,8 +337,8 @@ services:
     environment:
       <<: *app-env
     volumes:
-      - ../build/docker/config/vega-backend/vega-backend-config.yaml:/opt/vega-backend/config/vega-backend-config.yaml:ro
-      - ../build/docker/config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
+      - ./config/vega-backend/vega-backend-config.yaml:/opt/vega-backend/config/vega-backend-config.yaml:ro
+      - ./config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
     restart: unless-stopped
     networks: [openbkn]
 
@@ -365,7 +365,7 @@ services:
       OAUTHADMINHOST: bkn-safe-hydra-admin
       OAUTHADMINPORT: "4445"
     volumes:
-      - ../build/docker/config/dm-svc-conf:/tmp/rds_conf:ro
+      - ./config/dm-svc-conf:/tmp/rds_conf:ro
     restart: unless-stopped
     networks: [openbkn]
 
@@ -390,7 +390,7 @@ services:
       OAUTHADMINHOST: bkn-safe-hydra-admin
       OAUTHADMINPORT: "4445"
     volumes:
-      - ../build/docker/config/dm-svc-conf:/tmp/rds_conf:ro
+      - ./config/dm-svc-conf:/tmp/rds_conf:ro
     restart: unless-stopped
     networks: [openbkn]
 
@@ -408,12 +408,12 @@ services:
       data-migrator: {condition: service_completed_successfully}
       bkn-safe: {condition: service_started}
     env_file:
-      - ../build/docker/config/rendered.env
+      - ./config/rendered.env
     environment:
       BKN_TRACE_EVIDENCE_PUBLISHER_ENABLED: "false"
     volumes:
-      - ../build/docker/config/agent-retrieval:/sysvol/config:ro
-      - ../build/docker/config/agent-retrieval/agent-retrieval-secret.yaml:/sysvol/secret/agent-retrieval-secret.yaml:ro
+      - ./config/agent-retrieval:/sysvol/config:ro
+      - ./config/agent-retrieval/agent-retrieval-secret.yaml:/sysvol/secret/agent-retrieval-secret.yaml:ro
     restart: unless-stopped
     networks: [openbkn, sandbox_network]
 
@@ -434,14 +434,14 @@ services:
       bkn-safe: {condition: service_started}
       minio: {condition: service_healthy}
     env_file:
-      - ../build/docker/config/rendered.env
+      - ./config/rendered.env
     environment:
       BKN_TRACE_EVIDENCE_PUBLISHER_ENABLED: "false"
       # 服务启动时强制校验，缺失会直接 panic。
       BKN_SAFE_URL: http://bkn-safe:3000
     volumes:
-      - ../build/docker/config/agent-operator-integration:/sysvol/config:ro
-      - ../build/docker/config/agent-operator-integration/agent-operator-integration-secret.yaml:/sysvol/secret/agent-operator-integration-secret.yaml:ro
+      - ./config/agent-operator-integration:/sysvol/config:ro
+      - ./config/agent-operator-integration/agent-operator-integration-secret.yaml:/sysvol/secret/agent-operator-integration-secret.yaml:ro
     restart: unless-stopped
     networks: [openbkn]
 
@@ -478,7 +478,7 @@ services:
       data-migrator: {condition: service_completed_successfully}
       bkn-safe: {condition: service_started}
     env_file:
-      - ../build/docker/config/rendered.env
+      - ./config/rendered.env
     environment:
       BKN_AGENT_PORT: "30800"
       RDSHOST: mariadb
@@ -497,7 +497,7 @@ services:
       OTEL_LOGS_ENABLED: "false"
       BKN_TRACE_ARTIFACT_INGEST_URL: http://agent-observability:8080/api/agent-observability/v1/evidence/artifacts
     volumes:
-      - ../build/docker/config/dm-svc-conf:/tmp/rds_conf:ro
+      - ./config/dm-svc-conf:/tmp/rds_conf:ro
     restart: unless-stopped
     networks: [openbkn]
 
@@ -508,7 +508,7 @@ services:
       dockerfile: Dockerfile
       args: *go-build-args
     env_file:
-      - ../build/docker/config/rendered.env
+      - ./config/rendered.env
     environment:
       BKN_TRACE_LOG_LEVEL: info
       BKN_TRACE_EVIDENCE_STORE: memory
@@ -583,7 +583,7 @@ services:
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
     volumes:
-      - ../build/docker/config/studio-config.js:/usr/share/nginx/html/studio/config.js:ro
+      - ./config/studio-config.js:/usr/share/nginx/html/studio/config.js:ro
     restart: unless-stopped
     networks: [openbkn]
 

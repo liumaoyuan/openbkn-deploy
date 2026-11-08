@@ -31,7 +31,7 @@ $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 
 if (-not (Test-Path -LiteralPath ".env")) {
-  throw "缺少 .env，请先运行: python .\init.py"
+  throw "缺少 .env，请先复制 .env.example 为 .env 并填写密码"
 }
 
 if (-not $List -and -not $SkipBuild) {

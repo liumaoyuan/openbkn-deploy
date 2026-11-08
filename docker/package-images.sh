@@ -34,7 +34,7 @@ for arg in "$@"; do
 done
 
 if [[ ! -f .env ]]; then
-  echo "缺少 .env，请先运行: python3 init.py" >&2
+  echo "缺少 .env，请先复制 .env.example 为 .env 并填写密码" >&2
   exit 1
 fi
 

@@ -14,7 +14,7 @@
 #   导入完成后仍需在内网机器上生成 .env 与运行时配置:
 #     cp .env.example .env   # 或者从原机器带过来
 #     修改 OPENBKN_BIND_ADDRESS / OPENBKN_PUBLIC_BASE_URL
-#     python3 init.py
+#     确认 docker/.env 与 docker/config/ 已按示例文件填写
 #     docker compose --env-file .env up -d     # 不要加 --build
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -64,4 +64,4 @@ if [[ $missing -ne 0 ]]; then
 fi
 
 echo "== 全部镜像就绪（本机架构: $(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')）=="
-echo "下一步: 配置 .env → python3 init.py → docker compose --env-file .env up -d"
+echo "下一步: 确认 .env 与 config/ 已填写 → docker compose --env-file .env up -d"

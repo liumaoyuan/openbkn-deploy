@@ -1,0 +1,82 @@
+# 手工维护的运行时配置：把 CHANGE_ME_* 替换成 docker/.env 中同名变量的值。
+# 修改后重启对应服务: docker compose --env-file .env restart <service>
+server:
+  runMode: release
+  httpPort: 13018
+  language: zh-CN
+  readTimeOut: 120
+  writeTimeOut: 120
+  viewDataTimeout: 5m
+  defaultSmallModelEnabled: true
+  filteredCrossJoinMaxEdgeExpand: 10000
+log:
+  logLevel: debug
+  developMode: false
+  maxAge: 100
+  maxBackups: 20
+  maxSize: 100
+otel:
+  service_name: ontology-query
+  environment: production
+  otlp_endpoint: otelcol-contrib:4318
+  trace:
+    enabled: true
+    sampling_rate: 1.0
+  log:
+    enabled: true
+    level: info
+depServices:
+  class-443:
+    ingressClass: class-443
+  rds:
+    host: mariadb
+    port: 3306
+    user: openbkn
+    password: CHANGE_ME_MARIADB_PASSWORD
+    type: MariaDB
+  opensearch:
+    host: opensearch
+    port: 9200
+    protocol: http
+    user: admin
+    password: CHANGE_ME_OPENSEARCH_PASSWORD
+  authorization-private:
+    host: bkn-safe
+    port: 3000
+    protocol: http
+  user-management:
+    host: bkn-safe
+    port: 3000
+    protocol: http
+  hydra-public:
+    host: bkn-safe-hydra-public
+    port: 4444
+    protocol: http
+  hydra-admin:
+    host: bkn-safe-hydra-admin
+    port: 4445
+    protocol: http
+  model-factory:
+    host: mf-model-api
+    port: 9898
+    protocol: http
+  vega-backend:
+    host: vega-backend-svc
+    port: 13014
+    protocol: http
+  bkn-backend:
+    host: bkn-backend-svc
+    port: 13014
+    protocol: http
+  agent-operator-integration:
+    host: agent-operator-integration
+    port: 9000
+    protocol: http
+  mf-model-manager:
+    host: mf-model-manager
+    port: 9898
+    protocol: http
+  mf-model-api:
+    host: mf-model-api
+    port: 9898
+    protocol: http
