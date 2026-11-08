@@ -251,7 +251,15 @@ docker compose --env-file .env up -d
 docker compose --env-file .env up -d
 ```
 
-如果容器是从旧版本遗留的，配置目录里可能残留旧值；删除 `docker/config/` 后重新 `up -d` 即可重新生成。
+如果容器是从旧版本遗留的，配置目录里可能残留旧值。正确顺序是：
+
+```bash
+docker compose --env-file .env down
+rm -rf config
+docker compose --env-file .env up -d
+```
+
+不要在容器运行期间直接删除 `config/`，否则 Docker Desktop 可能残留挂载缓存，之后创建目录会报 "file exists"。
 
 **Docker 起不来**
 
