@@ -1,5 +1,5 @@
-# 手工维护的运行时配置：把 CHANGE_ME_* 替换成 docker/.env 中同名变量的值。
-# 修改后重启对应服务: docker compose --env-file .env restart <service>
+# 本文件由 config-init 根据 docker/.env 渲染生成，请勿手工修改；改值请修改 docker/.env 后重新 up。
+# 如需改值请修改 docker/.env 后重启: docker compose --env-file .env up -d
 server:
   runMode: release
   httpPort: 13014
@@ -33,7 +33,7 @@ depServices:
     host: mariadb
     port: 3306
     user: openbkn
-    password: CHANGE_ME_MARIADB_PASSWORD
+    password: ${MARIADB_PASSWORD}
     type: MariaDB
   mq:
     mqType: kafka
@@ -43,14 +43,14 @@ depServices:
     tenant: default
     auth:
       username: openbkn
-      password: CHANGE_ME_KAFKA_PASSWORD
+      password: ${KAFKA_PASSWORD}
       mechanism: PLAIN
   opensearch:
     host: opensearch
     port: 9200
     protocol: http
     user: admin
-    password: CHANGE_ME_OPENSEARCH_PASSWORD
+    password: ${OPENSEARCH_PASSWORD}
   hydra-admin:
     host: bkn-safe-hydra-admin
     port: 4445

@@ -30,6 +30,19 @@ x-go-build-args: &go-build-args
   GOPROXY_URL: ${GOPROXY_URL:-https://mirrors.aliyun.com/goproxy|https://goproxy.cn|https://mirrors.cloud.tencent.com/go|https://goproxy.io,direct}
 
 services:
+  # 把 config.template 按 .env 渲染到 config/，最终用户只需要编辑 .env。
+  config-init:
+    image: alpine:3.20
+    env_file:
+      - .env
+    volumes:
+      - ./config.template:/in:ro
+      - ./config:/out
+      - ./render-config.sh:/render-config.sh:ro
+    entrypoint: ["/bin/sh", "/render-config.sh"]
+    restart: "no"
+    networks: [openbkn]
+
   mariadb:
     image: mariadb:11.4
     environment:
@@ -267,6 +280,7 @@ services:
         HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-http://host.docker.internal:7890}
         NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,.local,mirrors.aliyun.com,.aliyun.com,mirrors.cloud.tencent.com,.tencent.com}
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb:
         condition: service_healthy
     command:
@@ -292,6 +306,7 @@ services:
       dockerfile: adp/bkn/bkn-backend/docker/Dockerfile
       args: *go-build-args
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       kafka: {condition: service_healthy}
       opensearch: {condition: service_healthy}
@@ -311,6 +326,7 @@ services:
       dockerfile: adp/bkn/ontology-query/docker/Dockerfile
       args: *go-build-args
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       opensearch: {condition: service_healthy}
       data-migrator: {condition: service_completed_successfully}
@@ -330,6 +346,7 @@ services:
       dockerfile: ../docker/Dockerfile
       args: *go-build-args
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       kafka: {condition: service_healthy}
       opensearch: {condition: service_healthy}
@@ -350,6 +367,7 @@ services:
       args:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}
@@ -375,6 +393,7 @@ services:
       context: ../../bkn-foundry/infra/mf-model-manager
       dockerfile: Dockerfile
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}
@@ -402,14 +421,16 @@ services:
       dockerfile: adp/context-loader/agent-retrieval/docker/Dockerfile
       args: *go-build-args
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}
       data-migrator: {condition: service_completed_successfully}
       bkn-safe: {condition: service_started}
-    env_file:
-      - ./config/rendered.env
     environment:
+      BKN_TRACE_EVIDENCE_INGEST_TOKEN: ${BKN_TRACE_EVIDENCE_INGEST_TOKEN}
+      BKN_TRACE_ARTIFACT_INGEST_TOKEN: ${BKN_TRACE_ARTIFACT_INGEST_TOKEN}
+      BKN_PROVENANCE_BOOTSTRAP_TOKEN: ${BKN_PROVENANCE_BOOTSTRAP_TOKEN}
       BKN_TRACE_EVIDENCE_PUBLISHER_ENABLED: "false"
     volumes:
       - ./config/agent-retrieval:/sysvol/config:ro
@@ -427,15 +448,17 @@ services:
         <<: *go-build-args
         APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}
       data-migrator: {condition: service_completed_successfully}
       bkn-safe: {condition: service_started}
       minio: {condition: service_healthy}
-    env_file:
-      - ./config/rendered.env
     environment:
+      BKN_TRACE_EVIDENCE_INGEST_TOKEN: ${BKN_TRACE_EVIDENCE_INGEST_TOKEN}
+      BKN_TRACE_ARTIFACT_INGEST_TOKEN: ${BKN_TRACE_ARTIFACT_INGEST_TOKEN}
+      BKN_PROVENANCE_BOOTSTRAP_TOKEN: ${BKN_PROVENANCE_BOOTSTRAP_TOKEN}
       BKN_TRACE_EVIDENCE_PUBLISHER_ENABLED: "false"
       # 服务启动时强制校验，缺失会直接 panic。
       BKN_SAFE_URL: http://bkn-safe:3000
@@ -474,12 +497,14 @@ services:
         # 腾讯云镜像批量下载会频繁 RemoteDisconnected；阿里云实测 3/3 成功且已同步 aiohttp 3.14.5。
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       data-migrator: {condition: service_completed_successfully}
       bkn-safe: {condition: service_started}
-    env_file:
-      - ./config/rendered.env
     environment:
+      BKN_TRACE_EVIDENCE_INGEST_TOKEN: ${BKN_TRACE_EVIDENCE_INGEST_TOKEN}
+      BKN_TRACE_ARTIFACT_INGEST_TOKEN: ${BKN_TRACE_ARTIFACT_INGEST_TOKEN}
+      BKN_PROVENANCE_BOOTSTRAP_TOKEN: ${BKN_PROVENANCE_BOOTSTRAP_TOKEN}
       BKN_AGENT_PORT: "30800"
       RDSHOST: mariadb
       RDSPORT: "3306"
@@ -507,9 +532,10 @@ services:
       context: ../../bkn-foundry/bkn-trace/agent-observability
       dockerfile: Dockerfile
       args: *go-build-args
-    env_file:
-      - ./config/rendered.env
     environment:
+      BKN_TRACE_EVIDENCE_INGEST_TOKEN: ${BKN_TRACE_EVIDENCE_INGEST_TOKEN}
+      BKN_TRACE_ARTIFACT_INGEST_TOKEN: ${BKN_TRACE_ARTIFACT_INGEST_TOKEN}
+      BKN_PROVENANCE_BOOTSTRAP_TOKEN: ${BKN_PROVENANCE_BOOTSTRAP_TOKEN}
       BKN_TRACE_LOG_LEVEL: info
       BKN_TRACE_EVIDENCE_STORE: memory
       BKN_TRACE_CORE_STORE: mariadb
@@ -526,6 +552,7 @@ services:
       OPENSEARCH_ENDPOINT: http://opensearch:9200
       OPENSEARCH_AUTH_ENABLED: "false"
     depends_on:
+      config-init: {condition: service_completed_successfully}
       mariadb: {condition: service_healthy}
       bkn-safe: {condition: service_started}
     restart: unless-stopped
@@ -582,6 +609,8 @@ services:
       dockerfile: Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
+    depends_on:
+      config-init: {condition: service_completed_successfully}
     volumes:
       - ./config/studio-config.js:/usr/share/nginx/html/studio/config.js:ro
     restart: unless-stopped

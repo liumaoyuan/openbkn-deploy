@@ -1,7 +1,0 @@
-# 手工维护的运行时配置：把 CHANGE_ME_* 替换成 docker/.env 中同名变量的值。
-# 修改后重启对应服务: docker compose --env-file .env restart <service>
-TIME_ZON=(480)
-LANGUAGE=(cn)
-DM=(mariadb)
-[DM]
-LOGIN_MODE=(1)

@@ -1,0 +1,7 @@
+# 本文件由 config-init 根据 docker/.env 渲染生成，请勿手工修改；改值请修改 docker/.env 后重新 up。
+# 如需改值请修改 docker/.env 后重启: docker compose --env-file .env up -d
+TIME_ZON=(480)
+LANGUAGE=(cn)
+DM=(mariadb)
+[DM]
+LOGIN_MODE=(1)

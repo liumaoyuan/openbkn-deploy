@@ -1,5 +1,5 @@
-# 手工维护的运行时配置：把 CHANGE_ME_* 替换成 docker/.env 中同名变量的值。
-# 修改后重启对应服务: docker compose --env-file .env restart <service>
+# 本文件由 config-init 根据 docker/.env 渲染生成，请勿手工修改；改值请修改 docker/.env 后重新 up。
+# 如需改值请修改 docker/.env 后重启: docker compose --env-file .env up -d
 http_addr: :3000
 seed_on_start: false
 db:

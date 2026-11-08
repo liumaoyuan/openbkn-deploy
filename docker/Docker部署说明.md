@@ -62,27 +62,20 @@ OPENBKN_PUBLIC_BASE_URL=http://192.168.1.100:8080
 OPENBKN_BIND_ADDRESS=0.0.0.0
 ```
 
-#### 2.2 填写 `config/`
+#### 2.2 运行时配置会自动生成
 
-```powershell
-Copy-Item -Recurse config.example config
+应用服务读取的 `config/` 目录由 `config-init` 容器在启动时按 `.env` 自动渲染，**不需要手工编辑，也不要把密码写进配置文件**。
+
+- `config.template/`：模板，随仓库提供，一般不需要动
+- `config/`：启动时自动生成，已加入 `.gitignore`
+
+所以日常只需要维护 `.env` 一个文件。改完 `.env` 后执行：
+
+```bash
+docker compose --env-file .env up -d
 ```
 
-`config/` 下有 15 个配置文件，把里面的 `CHANGE_ME_*` 换成**与 `.env` 相同的值**。
-
-每个文件开头都有注释说明用途。密码对应关系：
-
-| `.env` 变量 | 要同步填写的配置文件 |
-|---|---|
-| `MARIADB_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`data-migrator-secret.yaml` |
-| `REDIS_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`agent-operator-integration/agent-operator-integration-secret.yaml`、`agent-retrieval/agent-retrieval-secret.yaml` |
-| `KAFKA_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`vega-backend/vega-backend-config.yaml`、`agent-operator-integration/mq_config.yaml` |
-| `OPENSEARCH_PASSWORD` | `bkn-backend/bkn-backend-config.yaml`、`ontology-query/ontology-query-config.yaml`、`vega-backend/vega-backend-config.yaml` |
-| `BKN_TRACE_*` / `BKN_PROVENANCE_*` | `rendered.env` |
-
-> `bkn-safe` 的数据库连接由 compose 通过 `SAFE_DB_*` 环境变量传入（取自 `MARIADB_PASSWORD`），不需要改它的配置文件。
-
-`config/` 和 `.env` 已被 `.gitignore` 忽略，不会被提交。
+`config-init` 会重新生成配置，相关服务随之重建。
 
 ### 3. 打包镜像
 
@@ -252,7 +245,13 @@ docker compose --env-file .env up -d
 
 **服务报“Access denied”“认证失败”**
 
-`.env` 与 `config/` 里的密码不一致。按第一章的对应关系表逐项核对，改完重启对应服务。
+不要手工改 `config/`（它会被 `config-init` 覆盖）。直接改 `.env` 里对应的密码，然后：
+
+```bash
+docker compose --env-file .env up -d
+```
+
+如果容器是从旧版本遗留的，配置目录里可能残留旧值；删除 `docker/config/` 后重新 `up -d` 即可重新生成。
 
 **Docker 起不来**
 
@@ -280,8 +279,9 @@ openbkn-deploy/
 │   ├── compose.yml              服务编排
 │   ├── .env.example             配置模板（复制为 .env 后填写）
 │   ├── .env                     本机配置与密码（不提交）
-│   ├── config.example/          运行时配置模板（复制为 config 后填写）
-│   ├── config/                  实际运行时配置（不提交）
+│   ├── config.template/         运行时配置模板（由 config-init 渲染）
+│   ├── config/                  自动生成的运行时配置（不提交）
+│   ├── render-config.sh         config-init 使用的渲染脚本
 │   ├── app/                     Docker 安装包（按架构）
 │   ├── gateway.conf             网关路由
 │   ├── mariadb-init.sql         数据库初始化
