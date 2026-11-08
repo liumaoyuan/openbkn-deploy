@@ -7,6 +7,7 @@
 #
 # 用法：
 #   sudo bash install-mysql.sh                    # 自动按 CPU 架构选择安装包
+#   bash install-mysql.sh --check                 # 只打印识别结果，不安装
 #   sudo bash install-mysql.sh <tar.xz 路径>      # 手动指定
 #
 # 可选环境变量：
@@ -38,27 +39,49 @@ DB_NAME="${OPENBKN_DB_NAME:-openbkn}"
 DB_USER="${OPENBKN_DB_USER:-openbkn}"
 
 usage() {
-  sed -n '2,26p' "$0"
+  sed -n '2,27p' "$0"
   exit 2
 }
 
-case "${1:-}" in
-  -h | --help) usage ;;
-esac
+CHECK_ONLY=0
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    -h | --help) usage ;;
+    --check) CHECK_ONLY=1 ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+if [[ ${#ARGS[@]} -gt 1 ]]; then
+  usage
+fi
 
 case "$(uname -m)" in
-  x86_64) MYSQL_ARCH="x86_64" ;;
-  aarch64 | arm64) MYSQL_ARCH="aarch64" ;;
+  x86_64)
+    APP_DIR="amd64"
+    MYSQL_ARCH="x86_64"
+    ;;
+  aarch64 | arm64)
+    APP_DIR="arm64"
+    MYSQL_ARCH="aarch64"
+    ;;
   *)
     echo "不支持的 CPU 架构: $(uname -m)" >&2
     exit 1
     ;;
 esac
 
-ARCHIVE="${1:-${SCRIPT_DIR}/app/${MYSQL_ARCH}/mysql-${MYSQL_VERSION}-linux-glibc2.28-${MYSQL_ARCH}.tar.xz}"
+ARCHIVE="${ARGS[0]:-${SCRIPT_DIR}/app/${APP_DIR}/mysql-${MYSQL_VERSION}-linux-glibc2.28-${MYSQL_ARCH}.tar.xz}"
 MYSQLD="${BASE_DIR}/bin/mysqld"
 MYSQL="${BASE_DIR}/bin/mysql"
 MYSQL_TZINFO="${BASE_DIR}/bin/mysql_tzinfo_to_sql"
+
+if [[ "$CHECK_ONLY" == "1" ]]; then
+  echo "架构        : $(uname -m) (app/${APP_DIR}, ${MYSQL_ARCH})"
+  echo "MySQL 安装包: $ARCHIVE"
+  [[ -f "$ARCHIVE" ]] && echo "状态        : 文件存在" || echo "状态        : 文件不存在"
+  exit 0
+fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "请用 root 运行: sudo bash $0" >&2
