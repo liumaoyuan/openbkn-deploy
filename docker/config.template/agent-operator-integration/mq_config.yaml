@@ -3,7 +3,7 @@
 auth:
   mechanism: PLAIN
   password: ${KAFKA_PASSWORD}
-  username: openbkn
+  username: jiuge-bkn
 connectorType: kafka
 deployTrait:
   aiid: 1

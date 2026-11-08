@@ -2,7 +2,7 @@
 # 在离线/内网机器上导入镜像并核对完整性。
 #
 # 用法:
-#   bash load-images.sh                # 默认读取 ../build/openbkn-images.tar
+#   bash load-images.sh                # 默认读取 ../build/jiuge-bkn-images.tar
 #   bash load-images.sh <tar 文件>
 #
 # 步骤:
@@ -13,13 +13,23 @@
 # 注意:
 #   导入完成后仍需在内网机器上生成 .env 与运行时配置:
 #     cp .env.example .env   # 或者从原机器带过来
-#     修改 OPENBKN_BIND_ADDRESS / OPENBKN_PUBLIC_BASE_URL
+#     修改 JIUGEBKN_BIND_ADDRESS / JIUGEBKN_PUBLIC_BASE_URL
 #     确认 docker/.env 与 docker/config/ 已按示例文件填写
 #     docker compose --env-file .env up -d     # 不要加 --build
+
+# 兼容被 sh/dash 直接执行：本脚本使用 bash 特性，自动切回 bash。
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  fi
+  echo "请用 bash 运行: sudo bash $0" >&2
+  exit 1
+fi
+
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-TAR="${1:-../build/openbkn-images.tar}"
+TAR="${1:-../build/jiuge-bkn-images.tar}"
 if [[ ! -f "$TAR" ]]; then
   echo "找不到镜像包: $TAR" >&2
   exit 1

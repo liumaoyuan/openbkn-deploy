@@ -1,10 +1,10 @@
-name: openbkn
+name: jiuge-bkn
 
 x-app-env: &app-env
   RDSHOST: mariadb
   RDSPORT: "3306"
   RDSDBNAME: openbkn
-  RDSUSER: openbkn
+  RDSUSER: jiuge-bkn
   RDSPASS: ${MARIADB_PASSWORD}
   DB_TYPE: MariaDB
   OPENSEARCH_HOST: opensearch
@@ -20,7 +20,7 @@ x-app-env: &app-env
   REDISPASS: ${REDIS_PASSWORD}
   KAFKAHOST: kafka
   KAFKAPORT: "9092"
-  KAFKAUSER: ${KAFKA_USER:-openbkn}
+  KAFKAUSER: ${KAFKA_USER:-jiuge-bkn}
   KAFKAPASS: ${KAFKA_PASSWORD}
   BKN_SAFE_URL: http://bkn-safe:3000
 
@@ -43,7 +43,7 @@ services:
       - ./render-config.sh:/render-config.sh:ro
     entrypoint: ["/bin/sh", "/render-config.sh"]
     restart: "no"
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   mariadb:
     image: mariadb:11.4
@@ -52,11 +52,11 @@ services:
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       MARIADB_DATABASE: openbkn
-      MARIADB_USER: openbkn
+      MARIADB_USER: jiuge-bkn
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
     volumes:
       - mariadb-data:/var/lib/mysql
-      - ./mariadb-init.sql:/docker-entrypoint-initdb.d/10-openbkn.sql:ro
+      - ./mariadb-init.sql:/docker-entrypoint-initdb.d/10-jiuge-bkn.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -65,7 +65,7 @@ services:
       retries: 60
       start_period: 180s
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   postgres:
     image: postgres:16
@@ -83,7 +83,7 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   redis:
     image: redis:7.4
@@ -100,7 +100,7 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   kafka:
     image: ghcr.io/openbkn-ai/bitnami/kafka:3.9.0-debian-12-r10
@@ -122,9 +122,9 @@ services:
       KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
       KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: "1"
-      KAFKA_CLIENT_USERS: ${KAFKA_USER:-openbkn}
+      KAFKA_CLIENT_USERS: ${KAFKA_USER:-jiuge-bkn}
       KAFKA_CLIENT_PASSWORDS: ${KAFKA_PASSWORD}
-      KAFKA_INTER_BROKER_USER: ${KAFKA_USER:-openbkn}
+      KAFKA_INTER_BROKER_USER: ${KAFKA_USER:-jiuge-bkn}
       KAFKA_INTER_BROKER_PASSWORD: ${KAFKA_PASSWORD}
       ALLOW_PLAINTEXT_LISTENER: "yes"
     volumes:
@@ -136,7 +136,7 @@ services:
       retries: 20
       start_period: 40s
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   opensearch:
     image: opensearchproject/opensearch:2.19.1
@@ -164,7 +164,7 @@ services:
       retries: 30
       start_period: 60s
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   minio:
     image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
@@ -174,7 +174,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_DEFAULT_BUCKETS: sandbox-workspace,openbkn-objects
+      MINIO_DEFAULT_BUCKETS: sandbox-workspace,jiuge-bkn-objects
     volumes:
       - minio-data:/data
     healthcheck:
@@ -183,7 +183,7 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
-    networks: [openbkn, sandbox_network]
+    networks: [jiuge-bkn, sandbox_network]
 
   hydra-migrate:
     image: oryd/hydra:v26.2.0
@@ -196,7 +196,7 @@ services:
       DSN: postgres://hydra:${POSTGRES_PASSWORD}@postgres:5432/hydra?sslmode=disable
     command: ["migrate", "sql", "-e", "--yes"]
     restart: "no"
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   hydra:
     image: oryd/hydra:v26.2.0
@@ -207,40 +207,40 @@ services:
         condition: service_completed_successfully
     environment:
       DSN: postgres://hydra:${POSTGRES_PASSWORD}@postgres:5432/hydra?sslmode=disable
-      URLS_SELF_ISSUER: ${OPENBKN_PUBLIC_BASE_URL}
+      URLS_SELF_ISSUER: ${JIUGEBKN_PUBLIC_BASE_URL}
       URLS_LOGIN: /login
       URLS_CONSENT: /consent
-      URLS_DEVICE_VERIFICATION: ${OPENBKN_PUBLIC_BASE_URL}/device
-      URLS_DEVICE_SUCCESS: ${OPENBKN_PUBLIC_BASE_URL}/device/success
+      URLS_DEVICE_VERIFICATION: ${JIUGEBKN_PUBLIC_BASE_URL}/device
+      URLS_DEVICE_SUCCESS: ${JIUGEBKN_PUBLIC_BASE_URL}/device/success
       SECRETS_SYSTEM: ${HYDRA_SECRETS_SYSTEM}
       OAUTH2_EXPOSE_INTERNAL_ERRORS: "true"
       LOG_LEVEL: info
     command: ["serve", "all", "--dev"]
     restart: unless-stopped
     networks:
-      openbkn:
+      jiuge-bkn:
         aliases: [bkn-safe-hydra-public, bkn-safe-hydra-admin]
 
   # Hydra 客户端不是由 bkn-safe 建库时自动注册的（对标 chart 里的 client-seed job）。
   # 缺这个客户端时 Studio 登录会报 invalid_client，并把用户带到 OAuth 错误页。
   hydra-client-seed:
     # 复用 bkn-safe 镜像（自带 curl 与 sh），避免为一次性任务再引入一个镜像。
-    image: openbkn/bkn-safe:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/bkn-safe:${JIUGEBKN_IMAGE_TAG:-local}
     # 离线栈：镜像必须来自本地导入，缺失时立刻报错而不是联网拉取。
     pull_policy: never
     depends_on:
       hydra: {condition: service_started}
     environment:
       HYDRA_ADMIN: http://bkn-safe-hydra-admin:4445
-      WEB_BASE_URL: ${OPENBKN_PUBLIC_BASE_URL}
+      WEB_BASE_URL: ${JIUGEBKN_PUBLIC_BASE_URL}
     volumes:
       - ./hydra-seed-client.sh:/seed.sh:ro
     entrypoint: ["/bin/sh", "/seed.sh"]
     restart: "no"
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   bkn-safe:
-    image: openbkn/bkn-safe:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/bkn-safe:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/bkn-safe
       dockerfile: Dockerfile
@@ -254,15 +254,15 @@ services:
       SAFE_HTTP_ADDR: ":3000"
       SAFE_SEED_ON_START: "true"
       SAFE_DB_TYPE: MySQL
-      SAFE_DB_USER: openbkn
+      SAFE_DB_USER: jiuge-bkn
       SAFE_DB_PASSWORD: ${MARIADB_PASSWORD}
       SAFE_DB_HOST: mariadb
       SAFE_DB_PORT: "3306"
       SAFE_DB_NAME: safe
       SAFE_HYDRA_ADMIN_URL: http://bkn-safe-hydra-admin:4445
       SAFE_HYDRA_PUBLIC_URL: http://bkn-safe-hydra-public:4444
-      SAFE_HYDRA_BROWSER_PUBLIC_URL: ${OPENBKN_PUBLIC_BASE_URL}
-      SAFE_OAUTH_STUDIO_BASELINE_REDIRECT_URIS: '["${OPENBKN_PUBLIC_BASE_URL}/studio/callback"]'
+      SAFE_HYDRA_BROWSER_PUBLIC_URL: ${JIUGEBKN_PUBLIC_BASE_URL}
+      SAFE_OAUTH_STUDIO_BASELINE_REDIRECT_URIS: '["${JIUGEBKN_PUBLIC_BASE_URL}/studio/callback"]'
       SAFE_BKN_BACKEND_BASE_URL: http://bkn-backend-svc:13014
       SAFE_BKN_AGENT_BASE_URL: http://bkn-agent:30800
       SAFE_EXECUTION_FACTORY_BASE_URL: http://agent-operator-integration:9000
@@ -271,10 +271,10 @@ services:
       BKN_SAFE_INITIAL_PASSWORD: ${BKN_SAFE_INITIAL_PASSWORD}
       GIN_MODE: release
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   data-migrator:
-    image: openbkn/data-migrator:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/data-migrator:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry
       dockerfile: data-migrator/Dockerfile
@@ -308,10 +308,10 @@ services:
       TZ: Asia/Shanghai
       LANG: en_US.UTF-8
     restart: "no"
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   bkn-backend-svc:
-    image: openbkn/bkn-backend:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/bkn-backend:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry
       dockerfile: adp/bkn/bkn-backend/docker/Dockerfile
@@ -328,10 +328,10 @@ services:
       - ./config/bkn-backend/bkn-backend-config.yaml:/opt/bkn-backend/config/bkn-backend-config.yaml:ro
       - ./config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   ontology-query-svc:
-    image: openbkn/ontology-query:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/ontology-query:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry
       dockerfile: adp/bkn/ontology-query/docker/Dockerfile
@@ -347,10 +347,10 @@ services:
       - ./config/ontology-query/ontology-query-config.yaml:/opt/ontology-query/config/ontology-query-config.yaml:ro
       - ./config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   vega-backend-svc:
-    image: openbkn/vega-backend:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/vega-backend:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       # 与 CI 一致：上下文为 server 目录，Dockerfile 用 COPY . . 读取 server/ 下的源码。
       context: ../../bkn-foundry/vega/vega-backend/server
@@ -368,10 +368,10 @@ services:
       - ./config/vega-backend/vega-backend-config.yaml:/opt/vega-backend/config/vega-backend-config.yaml:ro
       - ./config/dm-svc-conf/rds_conf.yaml:/tmp/rds_conf/rds_conf.yaml:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   mf-model-api:
-    image: openbkn/mf-model-api:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/mf-model-api:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/mf-model-api
       dockerfile: Dockerfile
@@ -396,10 +396,10 @@ services:
     volumes:
       - ./config/dm-svc-conf:/tmp/rds_conf:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   mf-model-manager:
-    image: openbkn/mf-model-manager:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/mf-model-manager:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/mf-model-manager
       dockerfile: Dockerfile
@@ -422,10 +422,10 @@ services:
     volumes:
       - ./config/dm-svc-conf:/tmp/rds_conf:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   agent-retrieval:
-    image: openbkn/agent-retrieval:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/agent-retrieval:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       # Dockerfile 里的 COPY 使用仓库根相对路径，因此上下文必须是 bkn-foundry 根目录。
       context: ../../bkn-foundry
@@ -447,10 +447,10 @@ services:
       - ./config/agent-retrieval:/sysvol/config:ro
       - ./config/agent-retrieval/agent-retrieval-secret.yaml:/sysvol/secret/agent-retrieval-secret.yaml:ro
     restart: unless-stopped
-    networks: [openbkn, sandbox_network]
+    networks: [jiuge-bkn, sandbox_network]
 
   agent-operator-integration:
-    image: openbkn/agent-operator-integration:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/agent-operator-integration:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       # 同上：Dockerfile 使用仓库根相对路径 COPY。
       context: ../../bkn-foundry
@@ -477,10 +477,10 @@ services:
       - ./config/agent-operator-integration:/sysvol/config:ro
       - ./config/agent-operator-integration/agent-operator-integration-secret.yaml:/sysvol/secret/agent-operator-integration-secret.yaml:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   oss-gateway-backend:
-    image: openbkn/oss-gateway-backend:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/oss-gateway-backend:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/oss-gateway-backend
       dockerfile: Dockerfile
@@ -497,10 +497,10 @@ services:
       <<: *app-env
       CRYPTO_AES_KEY: ${OSS_CRYPTO_AES_KEY}
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   bkn-agent:
-    image: openbkn/bkn-agent:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/bkn-agent:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/bkn-agent
       dockerfile: Dockerfile
@@ -520,7 +520,7 @@ services:
       RDSHOST: mariadb
       RDSPORT: "3306"
       RDSDBNAME: openbkn
-      RDSUSER: openbkn
+      RDSUSER: jiuge-bkn
       RDSPASS: ${MARIADB_PASSWORD}
       HYDRA_ADMIN_BASE: http://bkn-safe-hydra-admin:4445
       BKN_SAFE_BASE: http://bkn-safe:3000/api/safe/v1
@@ -535,10 +535,10 @@ services:
     volumes:
       - ./config/dm-svc-conf:/tmp/rds_conf:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   agent-observability:
-    image: openbkn/agent-observability:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/agent-observability:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/bkn-trace/agent-observability
       dockerfile: Dockerfile
@@ -551,7 +551,7 @@ services:
       BKN_TRACE_EVIDENCE_STORE: memory
       BKN_TRACE_CORE_STORE: mariadb
       BKN_TRACE_CORE_AUTO_MIGRATE: "true"
-      BKN_TRACE_CORE_MARIADB_DSN: openbkn:${MARIADB_PASSWORD}@tcp(mariadb:3306)/bkn_trace?parseTime=true
+      BKN_TRACE_CORE_MARIADB_DSN: jiuge-bkn:${MARIADB_PASSWORD}@tcp(mariadb:3306)/bkn_trace?parseTime=true
       BKN_TRACE_ALLOW_UNAUTHENTICATED_INGEST: "false"
       BKN_TRACE_ALLOW_UNAUTHENTICATED_QUERY: "false"
       BKN_TRACE_HYDRA_ADMIN_URL: http://bkn-safe-hydra-admin:4445
@@ -567,10 +567,10 @@ services:
       mariadb: {condition: service_healthy}
       bkn-safe: {condition: service_started}
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   sandbox-control-plane:
-    image: openbkn/sandbox-control-plane:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/sandbox-control-plane:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-foundry/infra/sandbox
       dockerfile: sandbox_control_plane/Dockerfile
@@ -587,11 +587,11 @@ services:
       PYTHONUNBUFFERED: "1"
       ENVIRONMENT: development
       DEBUG: "false"
-      DATABASE_URL: mysql+aiomysql://openbkn:${MARIADB_PASSWORD}@mariadb:3306/sandbox
+      DATABASE_URL: mysql+aiomysql://jiuge-bkn:${MARIADB_PASSWORD}@mariadb:3306/sandbox
       DB_TYPE: mariadb
       DB_HOST: mariadb
       DB_PORT: "3306"
-      DB_USER: openbkn
+      DB_USER: jiuge-bkn
       DB_PASSWORD: ${MARIADB_PASSWORD}
       DB_DATABASE: sandbox
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -611,10 +611,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-    networks: [openbkn, sandbox_network]
+    networks: [jiuge-bkn, sandbox_network]
 
   studio:
-    image: openbkn/studio:${OPENBKN_IMAGE_TAG:-local}
+    image: jiuge-bkn/studio:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       context: ../../bkn-studio
       dockerfile: Dockerfile
@@ -625,7 +625,7 @@ services:
     volumes:
       - ./config/studio-config.js:/usr/share/nginx/html/studio/config.js:ro
     restart: unless-stopped
-    networks: [openbkn]
+    networks: [jiuge-bkn]
 
   gateway:
     image: nginx:1.27-alpine
@@ -644,20 +644,20 @@ services:
       bkn-agent: {condition: service_started}
       studio: {condition: service_started}
     ports:
-      - "${OPENBKN_BIND_ADDRESS:-127.0.0.1}:${OPENBKN_HTTP_PORT:-8080}:80"
+      - "${JIUGEBKN_BIND_ADDRESS:-127.0.0.1}:${JIUGEBKN_HTTP_PORT:-8080}:80"
     volumes:
       - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
       - ./proxy-headers.conf:/etc/nginx/conf.d/proxy-headers.conf:ro
     restart: unless-stopped
     networks:
-      openbkn:
+      jiuge-bkn:
         aliases: [gateway]
       sandbox_network:
         aliases: [gateway]
 
 networks:
-  openbkn:
-    name: openbkn_network
+  jiuge-bkn:
+    name: jiuge-bkn_network
     driver: bridge
   sandbox_network:
     name: sandbox_network

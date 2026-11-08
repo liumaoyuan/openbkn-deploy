@@ -8,7 +8,7 @@
   bkn-foundry / bkn-studio 源码构建，不使用 GitHub Actions 产物。
 
 .PARAMETER Output
-  输出 tar 路径，默认 ..\build\openbkn-images.tar
+  输出 tar 路径，默认 ..\build\jiuge-bkn-images.tar
 
 .PARAMETER SkipBuild
   跳过 docker compose build，直接打包现有镜像
@@ -22,7 +22,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$Output = "..\build\openbkn-images.tar",
+  [string]$Output = "..\build\jiuge-bkn-images.tar",
   [switch]$SkipBuild,
   [switch]$List
 )

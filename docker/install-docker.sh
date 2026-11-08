@@ -17,12 +17,22 @@
 #   2. 把 compose 插件装到 /usr/local/lib/docker/cli-plugins
 #   3. 写入 systemd 服务与日志轮转配置（已存在则不覆盖）
 #   4. 启动 docker 并做版本自检
+
+# 兼容被 sh/dash 直接执行：本脚本使用 bash 特性，自动切回 bash。
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  fi
+  echo "请用 bash 运行: sudo bash $0" >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  sed -n '2,22p' "$0"
+  awk 'NR==1{next} /^# 兼容被 sh\/dash/{exit} {print}' "$0"
   exit 2
 }
 

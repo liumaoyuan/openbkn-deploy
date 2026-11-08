@@ -4,7 +4,7 @@
 # 用法:
 #   bash package-images.sh                 # 先构建应用镜像，再打包全部镜像
 #   bash package-images.sh --list          # 只列出镜像清单和本地体积，不导出
-#   bash package-images.sh <输出文件>       # 指定输出路径（默认 ../build/openbkn-images.tar）
+#   bash package-images.sh <输出文件>       # 指定输出路径（默认 ../build/jiuge-bkn-images.tar）
 #
 # 环境变量:
 #   SKIP_BUILD=1  跳过 docker compose build，直接打包现有镜像
@@ -16,19 +16,29 @@
 #
 # 说明:
 #   镜像清单来自 `docker compose config --images`，即 compose 中所有服务的
-#   image 字段——应用镜像的 image 名由 compose 固定为 openbkn/<service>:<tag>，
+#   image 字段——应用镜像的 image 名由 compose 固定为 jiuge-bkn/<service>:<tag>，
 #   构建来源是本机工作区源码（../../bkn-foundry、../../bkn-studio），
 #   与 GitHub Actions 发布的镜像无关。
+
+# 兼容被 sh/dash 直接执行：本脚本使用 bash 特性，自动切回 bash。
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  fi
+  echo "请用 bash 运行: sudo bash $0" >&2
+  exit 1
+fi
+
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-OUT="../build/openbkn-images.tar"
+OUT="../build/jiuge-bkn-images.tar"
 LIST_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
     --list) LIST_ONLY=1 ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help)   awk 'NR==1{next} /^# 兼容被 sh\/dash/{exit} {print}' "$0"; exit 0 ;;
     *) OUT="$arg" ;;
   esac
 done

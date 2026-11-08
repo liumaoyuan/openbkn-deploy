@@ -7,14 +7,14 @@
   依次执行：校验 sha256 → docker load → 按 compose 清单核对镜像与架构。
 
 .PARAMETER Tar
-  镜像 tar 路径，默认 ..\build\openbkn-images.tar
+  镜像 tar 路径，默认 ..\build\jiuge-bkn-images.tar
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\load-images.ps1
 #>
 [CmdletBinding()]
 param(
-  [string]$Tar = "..\build\openbkn-images.tar"
+  [string]$Tar = "..\build\jiuge-bkn-images.tar"
 )
 
 $ErrorActionPreference = "Stop"

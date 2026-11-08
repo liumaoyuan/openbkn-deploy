@@ -12,12 +12,22 @@
 #
 # 可选环境变量：
 #   MYSQL_PORT            端口，默认 3306
-#   OPENBKN_DB_NAME       数据库名，默认 openbkn
-#   OPENBKN_DB_USER       业务账号，默认 openbkn
+#   JIUGEBKN_DB_NAME       数据库名，默认 openbkn
+#   JIUGEBKN_DB_USER       业务账号，默认 jiuge-bkn
 #   MYSQL_ROOT_PASSWORD   root 密码；不提供则随机生成
 #   MYSQL_PASSWORD        业务账号密码；不提供则随机生成
 #
 # 密码和连接信息会写到 /root/mysql-credentials.txt（权限 0600）。
+
+# 兼容被 sh/dash 直接执行：本脚本使用 bash 特性，自动切回 bash。
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  fi
+  echo "请用 bash 运行: sudo bash $0" >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,18 +35,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MYSQL_VERSION="8.0.45"
 BASE_DIR="/opt/mysql-${MYSQL_VERSION}"
 DATA_DIR="/var/lib/mysql"
-CONFIG_FILE="/etc/openbkn-mysql.cnf"
-SERVICE_FILE="/etc/systemd/system/openbkn-mysql.service"
+CONFIG_FILE="/etc/jiuge-bkn-mysql.cnf"
+SERVICE_FILE="/etc/systemd/system/jiuge-bkn-mysql.service"
 ERROR_LOG="/var/log/mysql/error.log"
 SOCKET_PATH="/run/mysqld/mysqld.sock"
 CREDENTIALS_FILE="/root/mysql-credentials.txt"
 
 PORT="${MYSQL_PORT:-3306}"
-DB_NAME="${OPENBKN_DB_NAME:-openbkn}"
-DB_USER="${OPENBKN_DB_USER:-openbkn}"
+DB_NAME="${JIUGEBKN_DB_NAME:-openbkn}"
+DB_USER="${JIUGEBKN_DB_USER:-jiuge-bkn}"
 
 usage() {
-  sed -n '2,27p' "$0"
+  awk 'NR==1{next} /^# 兼容被 sh\/dash/{exit} {print}' "$0"
   exit 2
 }
 
@@ -98,7 +108,7 @@ for command in tar xz systemctl openssl awk seq; do
 done
 
 if [[ -e "$SERVICE_FILE" || -f "$CONFIG_FILE" ]]; then
-  echo "检测到已存在的 openbkn-mysql 配置，拒绝覆盖。" >&2
+  echo "检测到已存在的 jiuge-bkn-mysql 配置，拒绝覆盖。" >&2
   exit 1
 fi
 
@@ -212,7 +222,7 @@ ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-$(openssl rand -hex 24)}"
 PROJECT_PASSWORD="${MYSQL_PASSWORD:-$(openssl rand -hex 24)}"
 
 systemctl daemon-reload
-systemctl enable --now openbkn-mysql
+systemctl enable --now jiuge-bkn-mysql
 
 echo "== 等待 MySQL 就绪 =="
 READY="false"
@@ -300,7 +310,7 @@ fi
 
 echo ""
 echo "MySQL 安装完成。"
-echo "服务名   : openbkn-mysql"
+echo "服务名   : jiuge-bkn-mysql"
 echo "安装目录 : ${BASE_DIR}"
 echo "数据目录 : ${DATA_DIR}"
 echo "地址     : ${ADVERTISE_HOST}:${PORT}"

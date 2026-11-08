@@ -32,7 +32,7 @@ depServices:
   rds:
     host: mariadb
     port: 3306
-    user: openbkn
+    user: jiuge-bkn
     password: ${MARIADB_PASSWORD}
     type: MariaDB
   mq:
@@ -42,7 +42,7 @@ depServices:
     protocol: sasl_plaintext
     tenant: default
     auth:
-      username: openbkn
+      username: jiuge-bkn
       password: ${KAFKA_PASSWORD}
       mechanism: PLAIN
   opensearch:

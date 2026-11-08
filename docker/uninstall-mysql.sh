@@ -7,8 +7,8 @@
 #   sudo bash uninstall-mysql.sh --yes      # 跳过交互确认（自动化场景）
 #
 # 删除内容：
-#   systemd 服务 openbkn-mysql
-#   /etc/openbkn-mysql.cnf
+#   systemd 服务 jiuge-bkn-mysql
+#   /etc/jiuge-bkn-mysql.cnf
 #   /opt/mysql-8.0.45
 #   /root/mysql-credentials.txt（以及旧名 /root/openbkn-mysql-credentials.txt）
 #
@@ -19,19 +19,29 @@
 # 说明：
 #   - 不删除系统用户/用户组 mysql（可能被其他程序共用）
 #   - 不删除 /etc/ld.so.conf 或 libaio 软链接
+
+# 兼容被 sh/dash 直接执行：本脚本使用 bash 特性，自动切回 bash。
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  fi
+  echo "请用 bash 运行: sudo bash $0" >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 MYSQL_VERSION="8.0.45"
 BASE_DIR="/opt/mysql-${MYSQL_VERSION}"
 DATA_DIR="/var/lib/mysql"
 LOG_DIR="/var/log/mysql"
-CONFIG_FILE="/etc/openbkn-mysql.cnf"
-SERVICE_FILE="/etc/systemd/system/openbkn-mysql.service"
-SERVICE_NAME="openbkn-mysql"
+CONFIG_FILE="/etc/jiuge-bkn-mysql.cnf"
+SERVICE_FILE="/etc/systemd/system/jiuge-bkn-mysql.service"
+SERVICE_NAME="jiuge-bkn-mysql"
 CREDENTIALS_FILES=("/root/mysql-credentials.txt" "/root/openbkn-mysql-credentials.txt")
 
 usage() {
-  sed -n '2,22p' "$0"
+  awk 'NR==1{next} /^# 兼容被 sh\/dash/{exit} {print}' "$0"
   exit 2
 }
 
