@@ -158,8 +158,11 @@ if ! id mysql >/dev/null 2>&1; then
   useradd --system --gid mysql --home-dir /nonexistent --shell /usr/sbin/nologin mysql
 fi
 
-chown -R mysql:mysql "$BASE_DIR" "$DATA_DIR" /run/mysqld /var/log/mysql
-chmod 0750 "$DATA_DIR" /run/mysqld /var/log/mysql
+# /run 是 tmpfs，systemd 停止服务时也会删除 RuntimeDirectory，
+# 这里在授权前重新确保目录存在，避免 "无法访问 /run/mysqld"。
+install -d -o mysql -g mysql -m 0750 /run/mysqld /var/log/mysql
+chown -R mysql:mysql "$BASE_DIR" "$DATA_DIR"
+chmod 0750 "$DATA_DIR"
 
 : >"$ERROR_LOG"
 chown mysql:mysql "$ERROR_LOG"
@@ -208,6 +211,7 @@ WantedBy=multi-user.target
 EOF
 
 echo "== 初始化数据目录 =="
+install -d -o mysql -g mysql -m 0750 /run/mysqld
 "$MYSQLD" --defaults-file="$CONFIG_FILE" --initialize --user=mysql
 
 TEMP_ROOT_PASSWORD="$(
