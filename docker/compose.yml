@@ -205,26 +205,16 @@ services:
   # Hydra 客户端不是由 bkn-safe 建库时自动注册的（对标 chart 里的 client-seed job）。
   # 缺这个客户端时 Studio 登录会报 invalid_client，并把用户带到 OAuth 错误页。
   hydra-client-seed:
-    image: alpine:3.20
+    # 复用 bkn-safe 镜像（自带 curl 与 sh），避免为一次性任务再引入一个镜像。
+    image: openbkn/bkn-safe:${OPENBKN_IMAGE_TAG:-local}
     depends_on:
       hydra: {condition: service_started}
     environment:
       HYDRA_ADMIN: http://bkn-safe-hydra-admin:4445
       WEB_BASE_URL: ${OPENBKN_PUBLIC_BASE_URL}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -e
-        i=0
-        until wget -q -O /dev/null "$$HYDRA_ADMIN/health/alive"; do
-          i=$$((i+1))
-          if [ $$i -gt 30 ]; then echo "hydra admin not ready"; exit 1; fi
-          sleep 2
-        done
-        BODY='{"client_id":"openbkn-studio","grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"none","redirect_uris":["'"$$WEB_BASE_URL"'/studio/callback"],"post_logout_redirect_uris":["'"$$WEB_BASE_URL"'/studio/"],"scope":"openid offline","audience":["bkn-safe"]}'
-        wget -q -O- --header="Content-Type: application/json" --post-data="$$BODY" "$$HYDRA_ADMIN/admin/clients" >/dev/null \
-          && echo "openbkn-studio client seeded" \
-          || echo "openbkn-studio client already present"
+    volumes:
+      - ./hydra-seed-client.sh:/seed.sh:ro
+    entrypoint: ["/bin/sh", "/seed.sh"]
     restart: "no"
     networks: [openbkn]
 
