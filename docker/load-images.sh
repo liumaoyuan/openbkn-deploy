@@ -120,7 +120,11 @@ done < <(docker compose "${ENV_ARGS[@]}" config --images | sort -u)
 status=0
 
 if (( ${#missing[@]} )); then
-  echo "镜像不完整，请重新打包或检查 tar 包" >&2
+  {
+    echo "镜像不完整，请重新打包或检查 tar 包"
+    echo "若 tar 包内容正确，检查 .env 的 JIUGEBKN_IMAGE_TAG 是否与包一致"
+    echo "（x86 包应为 amd64，ARM 包应为 arm64；镜像名由它拼出）"
+  } >&2
   status=1
 fi
 

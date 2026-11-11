@@ -7,10 +7,13 @@
   与 package-images.sh 等价，供 Windows 环境使用（Windows 为主路径）。
 
   镜像 tag：
-    - 包内 tag 与 .env 的 JIUGEBKN_IMAGE_TAG 一致（默认 local），目标机无需改配置。
-    - 打包完成后，应用镜像会额外打上 <tag>-<arch> 标签，
-      例如 jiuge-bkn/bkn-safe:local-amd64 / :local-arm64，
-      这样两套架构可以同时留在本机，互不覆盖。
+    tag 直接等于架构名，例如 jiuge-bkn/bkn-safe:amd64 / :arm64。
+    两个 tag 天然并存，不会出现"后一次构建覆盖前一次"的问题。
+
+    注意：目标机部署时必须在 .env 里设置对应的值
+      JIUGEBKN_IMAGE_TAG=amd64    # 用 x86 包
+      JIUGEBKN_IMAGE_TAG=arm64    # 用 ARM 包
+    与拿到的镜像包不一致时，compose 会找不到镜像。
 
 .PARAMETER Arch
   amd64 / arm64 / both。
@@ -72,12 +75,9 @@ if ([string]::IsNullOrWhiteSpace($Arch)) {
 }
 $archs = if ($Arch -eq "both") { @("amd64", "arm64") } else { @($Arch) }
 
-# 基础 tag：来自 .env，包内镜像用它命名，目标机不需要改配置
-$envLine = Select-String -LiteralPath ".env" -Pattern '^JIUGEBKN_IMAGE_TAG=' | Select-Object -First 1
-$baseTag = if ($envLine) { ($envLine.Line -split '=', 2)[1].Trim() } else { "local" }
-if ([string]::IsNullOrWhiteSpace($baseTag)) { $baseTag = "local" }
-
-Write-Info "本机架构: $hostArch    目标架构: $($archs -join ',')    镜像 tag: $baseTag"
+# 镜像 tag 直接等于架构名：jiuge-bkn/<服务>:amd64 / :arm64
+# 两个 tag 天然并存，不会出现"后一次构建覆盖前一次"的问题。
+Write-Info "本机架构: $hostArch    目标架构: $($archs -join ',')    镜像 tag: <架构名>"
 
 # 交叉构建的环境检查
 foreach ($archName in $archs) {
@@ -92,13 +92,17 @@ foreach ($archName in $archs) {
   break
 }
 
-# 镜像清单
-$images = @(docker compose --env-file .env config --images | Sort-Object -Unique)
-if ($images.Count -eq 0) { throw "未从 compose 解析到任何镜像" }
-
-$appImages = @($images | Where-Object { $_ -like "$AppPrefix*" })
-$runtimeImages = @($images | Where-Object { $_ -notlike "$AppPrefix*" })
-Write-Info ("共 {0} 个镜像：应用镜像 {1} 个，第三方镜像 {2} 个" -f $images.Count, $appImages.Count, $runtimeImages.Count)
+# 按架构解析镜像清单：compose 通过 JIUGEBKN_IMAGE_TAG 拼出镜像名，
+# 所以每个架构都要重新解析一次，得到的才是 :amd64 / :arm64。
+function Initialize-Images {
+  param([string]$ArchName)
+  $env:JIUGEBKN_IMAGE_TAG = $ArchName
+  $script:images = @(docker compose --env-file .env config --images | Sort-Object -Unique)
+  if ($script:images.Count -eq 0) { throw "未从 compose 解析到任何镜像（arch=$ArchName）" }
+  $script:appImages = @($script:images | Where-Object { $_ -like "$AppPrefix*" })
+  Write-Info ("linux/{0}：共 {1} 个镜像（应用 {2}，第三方 {3}）" -f `
+    $ArchName, $script:images.Count, $script:appImages.Count, ($script:images.Count - $script:appImages.Count))
+}
 
 function Get-ImageArch {
   param([string]$Image, [string]$ArchName)
@@ -145,8 +149,9 @@ function Invoke-Build {
   param([string]$ArchName)
 
   Write-Step "构建应用镜像（linux/$ArchName）"
-  # 显式指定 tag：保证包内镜像名与 .env 一致，且不受外部环境影响
-  $env:JIUGEBKN_IMAGE_TAG = $baseTag
+  # JIUGEBKN_IMAGE_TAG 已由 Initialize-Images 设为架构名，
+  # 产物直接是 jiuge-bkn/<服务>:amd64 或 :arm64
+  $env:JIUGEBKN_IMAGE_TAG = $ArchName
   $start = Get-Date
   # 用 Start-Process -NoNewWindow 而不是直接调用：函数内的原生命令输出
   # 会被收进函数返回值，整轮构建（可能数小时）要等结束才一次性显示。
@@ -214,16 +219,10 @@ function Save-Images {
   Write-Info ("产物: {0}  ({1:N2} GB)" -f $info.FullName, ($info.Length / 1GB))
 }
 
-function Set-ArchTag {
+# 目标机 .env 需要与包内 tag 一致，导出后提示一次
+function Write-EnvReminder {
   param([string]$ArchName)
-
-  Write-Step "标注架构标签（$baseTag-$ArchName）"
-  foreach ($img in $appImages) {
-    $base = $img -replace ':[^:]*$', ''
-    docker tag $img "${base}:$baseTag-$ArchName"
-  }
-  Write-Info "应用镜像已打上 :$baseTag-$ArchName，amd64 / arm64 两套可同时保留"
-  Write-Info "（compose 用的 :$baseTag 仍指向本次构建的架构）"
+  Write-Info "目标机 .env 需设置: JIUGEBKN_IMAGE_TAG=$ArchName"
 }
 
 # ---------------------------------------------------------------------------
@@ -231,6 +230,7 @@ function Set-ArchTag {
 # ---------------------------------------------------------------------------
 try {
   foreach ($archName in $archs) {
+    Initialize-Images -ArchName $archName
     if ($List) {
       Show-List -ArchName $archName
       continue
@@ -242,7 +242,7 @@ try {
     }
     Test-ImageArch -ArchName $archName
     Save-Images -ArchName $archName
-    Set-ArchTag -ArchName $archName
+    Write-EnvReminder -ArchName $archName
   }
 }
 finally {

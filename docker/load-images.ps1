@@ -100,6 +100,8 @@ $failed = $false
 
 if ($missing.Count -gt 0) {
   Write-Host "镜像不完整，请重新打包或检查 tar 包" -ForegroundColor Red
+  Write-Host "若 tar 包内容正确，检查 .env 的 JIUGEBKN_IMAGE_TAG 是否与包一致" -ForegroundColor Red
+  Write-Host "（x86 包应为 amd64，ARM 包应为 arm64；镜像名由它拼出）" -ForegroundColor Red
   $failed = $true
 }
 

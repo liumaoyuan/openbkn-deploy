@@ -16,11 +16,13 @@
 #   ../build/jiuge-bkn-images-arm64.tar  + .sha256 + images-arm64.txt
 #
 # 镜像 tag:
-#   - 包内 tag 与 .env 的 JIUGEBKN_IMAGE_TAG 一致（默认 local），目标机无需改配置。
-#   - 打包完成后，应用镜像会额外打上 <tag>-<arch> 标签，
-#     例如 jiuge-bkn/bkn-safe:local-amd64 / :local-arm64，
-#     这样两套架构可以同时留在本机，互不覆盖。
-#   - 第三方镜像（mariadb、postgres 等）本身支持多架构并存，不需要额外处理。
+#   tag 直接等于架构名，例如 jiuge-bkn/bkn-safe:amd64 / :arm64。
+#   两个 tag 天然并存，不会出现"后一次构建覆盖前一次"的问题。
+#
+#   ⚠ 目标机部署时必须在 .env 里设置对应的值：
+#       JIUGEBKN_IMAGE_TAG=amd64    # 用 x86 包
+#       JIUGEBKN_IMAGE_TAG=arm64    # 用 ARM 包
+#   与拿到的镜像包不一致时，compose 会找不到镜像。
 #
 # 环境要求:
 #   - 目标架构与本机一致时：原生构建，只需 docker + compose 插件。
@@ -85,11 +87,11 @@ case "$ARCH_SPEC" in
   *) die "--arch 只支持 amd64 / arm64 / both，收到: $ARCH_SPEC" ;;
 esac
 
-# 基础 tag：来自 .env，包内镜像用它命名，目标机不需要改配置
-BASE_TAG=$(awk -F= '/^JIUGEBKN_IMAGE_TAG=/{sub(/\r$/,"",$2); print $2; exit}' .env 2>/dev/null || true)
-BASE_TAG="${BASE_TAG:-local}"
-
-info "本机架构: $host_arch    目标架构: ${ARCHS[*]}    镜像 tag: $BASE_TAG"
+# 镜像 tag 直接等于架构名：jiuge-bkn/<服务>:amd64 / :arm64。
+# 两个 tag 天然并存，不再需要 <tag>-<arch> 那种额外标签，
+# 也不会出现"最后一次构建把 :local 覆盖掉"的问题。
+# 目标机在 .env 里写 JIUGEBKN_IMAGE_TAG=<架构> 即可。
+info "本机架构: $host_arch    目标架构: ${ARCHS[*]}    镜像 tag: <架构名>"
 
 # 交叉构建的环境检查（只在需要时）
 for arch in "${ARCHS[@]}"; do
@@ -107,18 +109,25 @@ done
 # ---------------------------------------------------------------------------
 # 清单
 # ---------------------------------------------------------------------------
-mapfile -t IMAGES < <(docker compose --env-file .env config --images | sort -u)
-(( ${#IMAGES[@]} )) || die "未从 compose 解析到任何镜像"
+# 按架构解析镜像清单：compose 通过 JIUGEBKN_IMAGE_TAG 拼出镜像名，
+# 所以每个架构都要重新解析一次，得到的才是 :amd64 / :arm64。
+compute_images() {
+  local arch="$1"
+  export JIUGEBKN_IMAGE_TAG="$arch"
+  mapfile -t IMAGES < <(docker compose --env-file .env config --images | sort -u)
+  (( ${#IMAGES[@]} )) || die "未从 compose 解析到任何镜像（arch=$arch）"
 
-APP_IMAGES=()
-RUNTIME_IMAGES=()
-for img in "${IMAGES[@]}"; do
-  case "$img" in
-    "$APP_PREFIX"*) APP_IMAGES+=("$img") ;;
-    *)              RUNTIME_IMAGES+=("$img") ;;
-  esac
-done
-info "共 ${#IMAGES[@]} 个镜像：应用镜像 ${#APP_IMAGES[@]} 个，第三方镜像 ${#RUNTIME_IMAGES[@]} 个"
+  APP_IMAGES=()
+  RUNTIME_IMAGES=()
+  local img
+  for img in "${IMAGES[@]}"; do
+    case "$img" in
+      "$APP_PREFIX"*) APP_IMAGES+=("$img") ;;
+      *)              RUNTIME_IMAGES+=("$img") ;;
+    esac
+  done
+  info "linux/$arch：共 ${#IMAGES[@]} 个镜像（应用 ${#APP_IMAGES[@]}，第三方 ${#RUNTIME_IMAGES[@]}）"
+}
 
 image_arch() {
   docker image inspect --platform "linux/$1" \
@@ -157,8 +166,9 @@ write_override() {
 build_arch() {
   local arch="$1" start=$SECONDS
   step "构建应用镜像（linux/$arch）"
-  # 显式指定 tag：保证包内镜像名与 .env 一致，且不受外部环境影响
-  JIUGEBKN_IMAGE_TAG="$BASE_TAG" docker compose --env-file .env \
+  # JIUGEBKN_IMAGE_TAG 已由 compute_images 导出为架构名，
+  # 产物直接是 jiuge-bkn/<服务>:amd64 或 :arm64
+  JIUGEBKN_IMAGE_TAG="$arch" docker compose --env-file .env \
     -f compose.yml -f "$OVERRIDE" build --progress plain \
     || die "构建失败（linux/$arch）"
   info "构建完成，耗时 $(( (SECONDS - start) / 60 )) 分钟"
@@ -211,16 +221,10 @@ save_arch() {
   ls -lh "$out" | awk '{print "  体积: " $5}'
 }
 
-# 给应用镜像加架构后缀 tag，让两套架构在本地并存
-retag_arch() {
-  local arch="$1" img dst
-  step "标注架构标签（$BASE_TAG-$arch）"
-  for img in "${APP_IMAGES[@]}"; do
-    dst="${img%:*}:$BASE_TAG-$arch"
-    docker tag "$img" "$dst"
-  done
-  info "应用镜像已打上 :$BASE_TAG-$arch，amd64 / arm64 两套可同时保留"
-  info "（compose 用的 :$BASE_TAG 仍指向本次构建的架构）"
+# 目标机 .env 需要与包内 tag 一致，导出后提示一次
+remind_env_tag() {
+  local arch="$1"
+  info "目标机 .env 需设置: JIUGEBKN_IMAGE_TAG=$arch"
 }
 
 # ---------------------------------------------------------------------------
@@ -230,16 +234,17 @@ cleanup() { rm -f "$OVERRIDE"; }
 trap cleanup EXIT
 
 for arch in "${ARCHS[@]}"; do
+  compute_images "$arch"
   case "$MODE" in
     list)  list_arch "$arch" ;;
     build) write_override "$arch"; build_arch "$arch" ;;
-    save)  verify_arch "$arch"; save_arch "$arch"; retag_arch "$arch" ;;
+    save)  verify_arch "$arch"; save_arch "$arch"; remind_env_tag "$arch" ;;
     all)
       write_override "$arch"
       build_arch "$arch"
       verify_arch "$arch"
       save_arch "$arch"
-      retag_arch "$arch"
+      remind_env_tag "$arch"
       ;;
   esac
 done
