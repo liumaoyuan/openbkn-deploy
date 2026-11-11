@@ -138,8 +138,8 @@ if (( ${#mismatched[@]} )); then
       echo "表现为所有容器 Restarting (255)——这不是配置问题，是镜像包拿错了架构。"
       echo
       echo "请在打包机上用对应的脚本重新出包:"
-      echo "  x86 机器:  bash package-images.sh"
-      echo "  ARM 机器:  bash package-images-arm64.sh"
+      echo "  x86 机器:  bash pull-images.sh --arch amd64 && bash package-images.sh --arch amd64"
+      echo "  ARM 机器:  bash pull-images.sh --arch arm64 && bash package-images.sh --arch arm64"
       echo "确实需要跨架构运行（宿主机已装 binfmt/QEMU 模拟）时，"
       echo "再加 --allow-arch-mismatch 重跑本脚本。"
     } >&2

@@ -118,8 +118,8 @@ if ($mismatched.Count -gt 0) {
     Write-Host "表现为所有容器 Restarting (255)——这不是配置问题，是镜像包拿错了架构。"
     Write-Host ""
     Write-Host "请在打包机上用对应的脚本重新出包:"
-    Write-Host "  x86 机器:  bash package-images.sh"
-    Write-Host "  ARM 机器:  bash package-images-arm64.sh"
+    Write-Host "  x86 机器:  bash pull-images.sh --arch amd64 && bash package-images.sh --arch amd64"
+    Write-Host "  ARM 机器:  bash pull-images.sh --arch arm64 && bash package-images.sh --arch arm64"
     Write-Host "确实需要跨架构运行（宿主机已装 binfmt/QEMU 模拟）时，"
     Write-Host "再加 -AllowArchMismatch 重跑本脚本。"
     $failed = $true

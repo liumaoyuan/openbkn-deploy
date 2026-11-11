@@ -1,5 +1,5 @@
 .env
 app/
 config/
-# package-images-arm64.sh 交叉构建时生成的临时 override，退出时自动删除
-.compose-arm64.override.yml
+# package-images.sh 构建时生成的临时 override，退出时自动删除
+.compose-arch.override.yml

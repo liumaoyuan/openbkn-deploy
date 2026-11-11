@@ -30,6 +30,18 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 
+# 本脚本已被 pull-images.sh + package-images.sh 取代：
+# 它按构建机自身架构出包，产物不带架构后缀，在 ARM 机器上无法运行，
+# 且没有架构校验——正是之前 Restarting (255) 的成因。保留文件仅为兼容旧文档引用。
+throw @"
+package-images.ps1 已废弃，请改用拆分后的两个脚本（Git Bash 中执行）：
+
+  拉取镜像:  bash pull-images.sh --arch amd64    # 或 arm64 / both
+  构建导出:  bash package-images.sh --arch amd64
+
+两个脚本分别负责拉取和打包，支持 amd64 / arm64 双架构并存。
+"@
+
 if (-not (Test-Path -LiteralPath ".env")) {
   throw "缺少 .env，请先复制 .env.example 为 .env 并填写密码"
 }
@@ -79,7 +91,14 @@ docker save -o $Output $images
 if ($LASTEXITCODE -ne 0) { throw "docker save 失败" }
 
 $hash = (Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash.ToLower()
-Set-Content -LiteralPath "$Output.sha256" -Value ("{0}  {1}" -f $hash, (Split-Path -Leaf $Output)) -Encoding ASCII
+# 必须显式写 LF：Set-Content 在 Windows 上会写 CRLF，文件名末尾多一个 \r，
+# Linux 上执行 sha256sum -c 会报 "FAILED open or read"。
+$shaPath = [System.IO.Path]::Combine((Get-Location).ProviderPath, "$Output.sha256")
+[System.IO.File]::WriteAllText(
+  $shaPath,
+  ("{0}  {1}`n" -f $hash, (Split-Path -Leaf $Output)),
+  (New-Object System.Text.ASCIIEncoding)
+)
 
 Write-Host "== 完成 =="
 Get-Item -LiteralPath $Output | Select-Object FullName, @{n = 'SizeGB'; e = { [math]::Round($_.Length / 1GB, 2) } } | Format-List
