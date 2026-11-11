@@ -47,6 +47,7 @@ param(
 $ErrorActionPreference = "Continue"
 Set-Location -LiteralPath $PSScriptRoot
 
+$script:DockerExe     = (Get-Command docker -ErrorAction Stop).Source
 $script:Retries       = 3
 $script:GhcrMirror    = if ($env:GHCR_MIRROR) { $env:GHCR_MIRROR } else { "ghcr.nju.edu.cn" }
 $script:DaocloudMirror = if ($env:DAOCLOUD_MIRROR) { $env:DAOCLOUD_MIRROR } else { "m.daocloud.io" }
@@ -121,9 +122,15 @@ function Invoke-PullOne {
     Write-Host "    来源: $ref"
     $t0 = Get-Date
     for ($i = 1; $i -le $script:Retries; $i++) {
-      # 不加 --quiet：让 docker 显示分层下载进度，大镜像才看得出是否在动
-      docker pull --platform "linux/$ArchName" $ref
-      if ($LASTEXITCODE -eq 0) {
+      # 必须用 Start-Process -NoNewWindow：
+      #   1) 函数内的原生命令输出会被收进函数返回值，调用处 if (...) 会整体吞掉；
+      #   2) 走 PowerShell 管道时 docker 检测到非 TTY，会把 [==>] 动画进度条
+      #      降级成纯文本。
+      # Start-Process 让 docker 直接继承控制台，才能看到分层的实时进度。
+      $proc = Start-Process -FilePath $script:DockerExe `
+        -ArgumentList @('pull', '--platform', "linux/$ArchName", $ref) `
+        -NoNewWindow -Wait -PassThru
+      if ($proc.ExitCode -eq 0) {
         if ($ref -ne $Image) { docker tag $ref $Image | Out-Null }
         Write-Host ("    ✓ {0}  ({1:N0} 秒)" -f $Image, ((Get-Date) - $t0).TotalSeconds)
         return $true

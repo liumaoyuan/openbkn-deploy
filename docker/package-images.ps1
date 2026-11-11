@@ -43,6 +43,7 @@ param(
 $ErrorActionPreference = "Continue"
 Set-Location -LiteralPath $PSScriptRoot
 
+$script:DockerExe = (Get-Command docker -ErrorAction Stop).Source
 $BuildDir = "..\build"
 $Override = ".compose-arch.override.yml"
 $AppPrefix = "jiuge-bkn/"
@@ -147,8 +148,14 @@ function Invoke-Build {
   # 显式指定 tag：保证包内镜像名与 .env 一致，且不受外部环境影响
   $env:JIUGEBKN_IMAGE_TAG = $baseTag
   $start = Get-Date
-  docker compose --env-file .env -f compose.yml -f $Override build --progress plain
-  if ($LASTEXITCODE -ne 0) { throw "构建失败（linux/$ArchName）" }
+  # 用 Start-Process -NoNewWindow 而不是直接调用：函数内的原生命令输出
+  # 会被收进函数返回值，整轮构建（可能数小时）要等结束才一次性显示。
+  $proc = Start-Process -FilePath $script:DockerExe `
+    -ArgumentList @('compose', '--env-file', '.env', '-f', 'compose.yml', '-f', $Override,
+                    'build', '--progress', 'plain') `
+    -WorkingDirectory (Get-Location).ProviderPath `
+    -NoNewWindow -Wait -PassThru
+  if ($proc.ExitCode -ne 0) { throw "构建失败（linux/$ArchName）" }
   $mins = [int]((Get-Date) - $start).TotalMinutes
   Write-Info "构建完成，耗时 $mins 分钟"
 }
