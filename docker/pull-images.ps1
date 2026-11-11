@@ -197,14 +197,12 @@ foreach ($archName in $archs) {
   $start = Get-Date
   foreach ($img in $list) {
     $idx++
-    Write-Progress -Activity "拉取 linux/$archName" `
-      -Status ("[{0}/{1}] {2}" -f $idx, $list.Count, $img) `
-      -PercentComplete ([int]($idx * 100 / $list.Count))
+    # 不用 Write-Progress：它在 PS 5.1 控制台里会抢占同一行，
+    # 把 docker 用 \r 刷新的分层下载进度覆盖掉，看起来像卡住不动。
     Write-Host ""
     Write-Host ("[{0}/{1}] {2}" -f $idx, $list.Count, $img)
     if (-not (Invoke-PullOne -Image $img -ArchName $archName)) { $failed += $img }
   }
-  Write-Progress -Activity "拉取 linux/$archName" -Completed
   Write-Host ""
   Write-Host ("== linux/{0} 结束：成功 {1}，失败 {2}，耗时 {3} 秒 ==" -f `
     $archName, ($list.Count - $failed.Count), $failed.Count, `
