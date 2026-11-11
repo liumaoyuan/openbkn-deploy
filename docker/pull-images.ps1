@@ -73,7 +73,6 @@ $script:RuntimeImages = @(
   "mariadb:11.4"                                         # 主数据库
   "postgres:16"                                          # Hydra 的库
   "redis:7.4"                                            # 缓存
-  "opensearchproject/opensearch:2.19.1"                  # 搜索引擎
   "docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z"    # 对象存储（MinIO 分支）
   "nginx:1.27-alpine"                                    # 网关
   "oryd/hydra:v26.2.0"                                   # OAuth 服务
@@ -87,6 +86,7 @@ $script:BuildImages = @(
   "python:3.11-slim"                                     # sandbox-control-plane
   "ubuntu:24.04"                                         # bkn-backend / data-migrator / oss-gateway
   "node:22-alpine"                                       # studio 前端构建
+  "opensearchproject/opensearch:2.19.1"                  # 自建 opensearch 镜像的来源（见 opensearch/Dockerfile）
   "ghcr.io/openbkn-ai/model-factory-base:v2"             # mf-model-api / mf-model-manager（563MB）
   "ghcr.io/openbkn-ai/vega-python-base:0.2.0"            # vega-backend 运行阶段
   "gcr.io/distroless/static-debian12:nonroot"            # agent-observability 运行阶段

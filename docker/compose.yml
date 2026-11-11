@@ -139,7 +139,14 @@ services:
     networks: [jiuge-bkn]
 
   opensearch:
-    image: opensearchproject/opensearch:2.19.1
+    # 官方 2.19.1 镜像基于 Amazon Linux 2023，glibc 要求 ARMv8.2，
+    # 在 Cortex-A72 / 飞腾 FT-2000 这类 ARMv8.0 机器上启动即报 glibc Fatal error。
+    # 改用 Ubuntu 基础的自建镜像，OpenSearch 本体仍从官方镜像搬过来。
+    image: jiuge-bkn/opensearch:${JIUGEBKN_IMAGE_TAG:-amd64}
+    build:
+      context: ./opensearch
+      args:
+        OPENSEARCH_VERSION: "2.19.1"
     # 离线栈：镜像必须来自本地导入，缺失时立刻报错而不是联网拉取。
     pull_policy: never
     environment:
