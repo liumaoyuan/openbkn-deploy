@@ -57,6 +57,16 @@ $script:PullSources = @{
   "oryd/hydra:v26.2.0" = "ghcr.io/openbkn-ai/oryd/hydra:v26.2.0"
 }
 
+# 华为云 SWR 上已确认存在的镜像，作为首要来源（国内线路最稳）。
+# 只收录实测可用的条目，避免每个镜像都先撞一次 404 再回退。
+$script:SwrRegistry = if ($env:SWR_REGISTRY) { $env:SWR_REGISTRY } else { "swr.cn-east-3.myhuaweicloud.com/openbkn-ai" }
+$script:SwrSources = @{
+  "postgres:16"                                             = "$($script:SwrRegistry)/postgres:16"
+  "oryd/hydra:v26.2.0"                                      = "$($script:SwrRegistry)/oryd/hydra:v26.2.0"
+  "ghcr.io/openbkn-ai/bitnami/kafka:3.9.0-debian-12-r10"    = "$($script:SwrRegistry)/bitnami/kafka:3.9.0-debian-12-r10"
+  "ghcr.io/openbkn-ai/model-factory-base:v2"                = "$($script:SwrRegistry)/model-factory-base:v2"
+}
+
 # 一、运行期镜像：compose.yml 里 image: 字段直接引用的（9 个，进交付包）
 $script:RuntimeImages = @(
   "alpine:3.20"                                          # config-init 渲染配置
@@ -98,6 +108,8 @@ function Write-Warn([string]$Message) { Write-Host "  ! $Message" -ForegroundCol
 function Get-Candidates {
   param([string]$Image)
   $result = @()
+  # 华为云 SWR 优先（仅限实测存在的镜像），其次手工换源表
+  if ($script:SwrSources.ContainsKey($Image)) { $result += $script:SwrSources[$Image] }
   if ($script:PullSources.ContainsKey($Image)) { $result += $script:PullSources[$Image] }
 
   $mirror = ""

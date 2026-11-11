@@ -46,6 +46,16 @@ declare -A PULL_SOURCES=(
   ["oryd/hydra:v26.2.0"]="ghcr.io/openbkn-ai/oryd/hydra:v26.2.0"
 )
 
+# 华为云 SWR 上已确认存在的镜像，作为首要来源（国内线路最稳）。
+# 只收录实测可用的条目，避免每个镜像都先撞一次 404 再回退。
+SWR_REGISTRY="${SWR_REGISTRY:-swr.cn-east-3.myhuaweicloud.com/openbkn-ai}"
+declare -A SWR_SOURCES=(
+  ["postgres:16"]="$SWR_REGISTRY/postgres:16"
+  ["oryd/hydra:v26.2.0"]="$SWR_REGISTRY/oryd/hydra:v26.2.0"
+  ["ghcr.io/openbkn-ai/bitnami/kafka:3.9.0-debian-12-r10"]="$SWR_REGISTRY/bitnami/kafka:3.9.0-debian-12-r10"
+  ["ghcr.io/openbkn-ai/model-factory-base:v2"]="$SWR_REGISTRY/model-factory-base:v2"
+)
+
 # ---------------------------------------------------------------------------
 # 清单
 # ---------------------------------------------------------------------------
@@ -128,6 +138,8 @@ candidates() {
     ghcr.io/*) mirror="$GHCR_MIRROR/${img#ghcr.io/}" ;;
   esac
   {
+    # 华为云 SWR 优先（仅限实测存在的镜像），其次手工换源表
+    [[ -n "${SWR_SOURCES[$img]:-}" ]] && printf '%s\n' "${SWR_SOURCES[$img]}"
     [[ -n "${PULL_SOURCES[$img]:-}" ]] && printf '%s\n' "${PULL_SOURCES[$img]}"
     if [[ "${DIRECT_FIRST:-0}" == "1" ]]; then
       printf '%s\n' "$img"
