@@ -182,16 +182,26 @@ pull_arch() {
 }
 
 check_arch() {
-  local arch="$1" bad=0 img a
+  local arch="$1" bad=0 img a s
   printf '\n== 核对 linux/%s ==\n' "$arch"
   for img in "${LIST[@]}"; do
     a=$(docker image inspect --platform "linux/$arch" \
           --format '{{.Architecture}}' "$img" 2>/dev/null || true)
-    if [[ "$a" == "$arch" ]]; then
-      printf '  ✓ %-58s %s\n' "$img" "$a"
-    else
-      printf '  ✗ %-58s %s\n' "$img" "${a:-缺失}" >&2
+    s=$(docker image inspect --platform "linux/$arch" \
+          --format '{{.Size}}' "$img" 2>/dev/null || echo 0)
+    if [[ -z "$a" ]]; then
+      printf '  ✗ %-58s 缺失\n' "$img" >&2
       bad=1
+    elif [[ "$a" != "$arch" ]]; then
+      printf '  ✗ %-58s %s\n' "$img" "$a" >&2
+      bad=1
+    elif (( ${s:-0} < 1048576 )); then
+      # 只有 manifest/config、没有层：拉取进行中或下载中断留下的残留记录。
+      # docker pull 会先登记镜像记录再下载层，所以"能 inspect 到"不等于"能跑"。
+      printf '  ✗ %-58s 不完整（仅 %s 字节，层未下载完）\n' "$img" "${s:-0}" >&2
+      bad=1
+    else
+      printf '  ✓ %-58s %s\n' "$img" "$a"
     fi
   done
   return $bad

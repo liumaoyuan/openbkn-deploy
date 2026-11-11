@@ -146,12 +146,20 @@ function Test-Arch {
   $bad = 0
   foreach ($img in $list) {
     $actual = (docker image inspect --platform "linux/$ArchName" --format '{{.Architecture}}' $img 2>$null | Out-String).Trim()
+    $sizeText = (docker image inspect --platform "linux/$ArchName" --format '{{.Size}}' $img 2>$null | Out-String).Trim()
+    $size = if ($sizeText -match '^\d+$') { [int64]$sizeText } else { 0 }
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($actual)) {
       Write-Host ("  ✗ {0,-58} 缺失" -f $img) -ForegroundColor Red
       $bad++
     }
     elseif ($actual -ne $ArchName) {
       Write-Host ("  ✗ {0,-58} {1}" -f $img, $actual) -ForegroundColor Red
+      $bad++
+    }
+    elseif ($size -lt 1048576) {
+      # 只有 manifest/config、没有层：拉取进行中或下载中断留下的残留记录。
+      # docker pull 会先登记镜像记录再下载层，所以"能 inspect 到"不等于"能跑"。
+      Write-Host ("  ✗ {0,-58} 不完整（{1} 字节，层未下载完）" -f $img, $size) -ForegroundColor Red
       $bad++
     }
     else {
