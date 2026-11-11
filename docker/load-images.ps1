@@ -69,16 +69,26 @@ if (Test-Path -LiteralPath ".env") { $envArgs = @("--env-file", ".env") }
 # 与本机 uname -m 一一对应，不依赖 .env 里可能没改的 JIUGEBKN_IMAGE_TAG。
 $env:JIUGEBKN_IMAGE_TAG = $hostArch
 
-# 但启动时 compose 读的是 .env，所以仍要提醒把它改成一致的。
-$envLine = Select-String -LiteralPath ".env" -Pattern '^JIUGEBKN_IMAGE_TAG=' | Select-Object -First 1
-$envTag = if ($envLine) { ($envLine.Line -split '=', 2)[1].Trim() } else { "" }
-if ($envTag -and $envTag -ne $hostArch) {
-  Write-Host ""
-  Write-Host ("  ! .env 的 JIUGEBKN_IMAGE_TAG={0} 与本机架构 {1} 不一致" -f $envTag, $hostArch) -ForegroundColor Yellow
-  Write-Host "    本次核对已按本机架构进行；启动前请把 .env 改成:" -ForegroundColor Yellow
-  Write-Host ("      JIUGEBKN_IMAGE_TAG={0}" -f $hostArch) -ForegroundColor Yellow
-  Write-Host "    否则 docker compose up 会找不到镜像。" -ForegroundColor Yellow
-  Write-Host ""
+# 启动时 compose 读的是 .env，tag 不一致的话 up 会找不到镜像。
+# 与其让人记着改，这里直接改成当前架构（原文件备份为 .env.bak）。
+if (Test-Path -LiteralPath ".env") {
+  $envLine = Select-String -LiteralPath ".env" -Pattern '^JIUGEBKN_IMAGE_TAG=' | Select-Object -First 1
+  $envTag = if ($envLine) { ($envLine.Line -split '=', 2)[1].Trim() } else { "" }
+  if ($envTag -ne $hostArch) {
+    Copy-Item -LiteralPath ".env" -Destination ".env.bak" -Force
+    $content = Get-Content -LiteralPath ".env" -Raw
+    if ($content -match '(?m)^JIUGEBKN_IMAGE_TAG=') {
+      $content = $content -replace '(?m)^JIUGEBKN_IMAGE_TAG=.*$', "JIUGEBKN_IMAGE_TAG=$hostArch"
+    }
+    else {
+      $content = $content.TrimEnd() + "`nJIUGEBKN_IMAGE_TAG=$hostArch`n"
+    }
+    Set-Content -LiteralPath ".env" -Value $content -NoNewline -Encoding ASCII
+    Write-Host ""
+    Write-Host ("  ! .env 的 JIUGEBKN_IMAGE_TAG 原为 {0}，与本机架构 {1} 不一致" -f $(if ($envTag) { $envTag } else { "未设置" }), $hostArch) -ForegroundColor Yellow
+    Write-Host ("    已自动改为 JIUGEBKN_IMAGE_TAG={0}（原文件备份为 .env.bak）" -f $hostArch) -ForegroundColor Yellow
+    Write-Host ""
+  }
 }
 
 $images = @(docker compose @envArgs config --images | Sort-Object -Unique)

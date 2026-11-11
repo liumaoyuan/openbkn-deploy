@@ -1,4 +1,5 @@
 .env
+.env.bak
 app/
 config/
 # package-images.sh 构建时生成的临时 override，退出时自动删除
