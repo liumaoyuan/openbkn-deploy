@@ -65,6 +65,29 @@ switch ($hostArch) {
 $envArgs = @()
 if (Test-Path -LiteralPath ".env") { $envArgs = @("--env-file", ".env") }
 
+# .env 里的镜像 tag 必须与本机架构一致（tag 就是架构名）。
+# 常见情况：把 x86 打包机的 .env 原样拷到 ARM 机器，tag 还停在 amd64，
+# 于是按 :amd64 找不到镜像，看起来像"包坏了"。
+$envLine = Select-String -LiteralPath ".env" -Pattern '^JIUGEBKN_IMAGE_TAG=' | Select-Object -First 1
+$envTag = if ($envLine) { ($envLine.Line -split '=', 2)[1].Trim() } else { "" }
+if ($envTag -and $envTag -ne $hostArch) {
+  # 取一个应用镜像做样本：只有 jiuge-bkn/* 的 tag 是架构名，
+  # 第三方镜像（alpine、mariadb…）的 tag 与架构无关。
+  $sample = @(docker compose @envArgs config --images 2>$null | Where-Object { $_ -like "jiuge-bkn/*" } | Sort-Object -Unique | Select-Object -First 1)
+  if ($sample.Count -gt 0) {
+    $sampleRepo = $sample[0] -replace ':[^:]*$', ''
+    $null = docker image inspect "${sampleRepo}:$hostArch" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host ""
+      Write-Host ("  ! .env 的 JIUGEBKN_IMAGE_TAG={0} 与本机架构 {1} 不一致" -f $envTag, $hostArch) -ForegroundColor Yellow
+      Write-Host ("    本地存在 {0}:{1}，本次改按本机架构核对" -f $sampleRepo, $hostArch) -ForegroundColor Yellow
+      Write-Host ("    请把 .env 改成: JIUGEBKN_IMAGE_TAG={0}" -f $hostArch) -ForegroundColor Yellow
+      Write-Host ""
+      $env:JIUGEBKN_IMAGE_TAG = $hostArch
+    }
+  }
+}
+
 $images = @(docker compose @envArgs config --images | Sort-Object -Unique)
 if ($images.Count -eq 0) { throw "未从 compose 解析到任何镜像" }
 

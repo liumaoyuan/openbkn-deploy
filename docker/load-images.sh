@@ -93,6 +93,27 @@ esac
 ENV_ARGS=()
 [[ -f .env ]] && ENV_ARGS=(--env-file .env)
 
+# .env 里的镜像 tag 必须与本机架构一致（tag 就是架构名）。
+# 常见情况：把 x86 打包机的 .env 原样拷到 ARM 机器，tag 还停在 amd64，
+# 于是按 :amd64 找不到镜像，看起来像"包坏了"。
+env_tag=$(awk -F= '/^JIUGEBKN_IMAGE_TAG=/{sub(/\r$/,"",$2); print $2; exit}' .env 2>/dev/null || true)
+if [[ -n "$env_tag" && "$env_tag" != "$host_arch" ]]; then
+  # 取一个应用镜像做样本：只有 jiuge-bkn/* 的 tag 是架构名，
+  # 第三方镜像（alpine、mariadb…）的 tag 与架构无关。
+  sample=$(docker compose "${ENV_ARGS[@]}" config --images 2>/dev/null | grep '^jiuge-bkn/' | head -1)
+  sample_repo="${sample%:*}"
+  if [[ -n "$sample_repo" ]] && docker image inspect "${sample_repo}:${host_arch}" >/dev/null 2>&1; then
+    {
+      echo
+      echo "  ! .env 的 JIUGEBKN_IMAGE_TAG=$env_tag 与本机架构 $host_arch 不一致"
+      echo "    本地存在 ${sample_repo}:${host_arch}，本次改按本机架构核对"
+      echo "    请把 .env 改成: JIUGEBKN_IMAGE_TAG=$host_arch"
+      echo
+    } >&2
+    export JIUGEBKN_IMAGE_TAG="$host_arch"
+  fi
+fi
+
 echo "== 核对该栈所需的镜像（本机架构: linux/$host_arch）=="
 missing=()
 mismatched=()
