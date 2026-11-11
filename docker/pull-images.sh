@@ -131,14 +131,16 @@ candidates() {
 }
 
 pull_one() {
-  local img="$1" arch="$2" ref i
+  local img="$1" arch="$2" ref i t0=$SECONDS
   while IFS= read -r ref; do
-    printf '    %-58s ← %s\n' "$img" "$ref"
+    printf '    来源: %s\n' "$ref"
     for i in $(seq 1 "$RETRIES"); do
-      if docker pull --quiet --platform "linux/$arch" "$ref"; then
+      # 不加 --quiet：让 docker 显示分层下载进度，大镜像才看得出是否在动
+      if docker pull --platform "linux/$arch" "$ref"; then
         if [[ "$ref" != "$img" ]]; then
           docker tag "$ref" "$img"
         fi
+        printf '    ✓ %s  (%d 秒)\n' "$img" "$(( SECONDS - t0 ))"
         return 0
       fi
       if (( i < RETRIES )); then
@@ -152,13 +154,17 @@ pull_one() {
 }
 
 pull_arch() {
-  local arch="$1" failed=() img
-  printf '\n== 拉取 linux/%s（%d 个镜像）==\n' "$arch" "${#LIST[@]}"
+  local arch="$1" failed=() img idx=0 total=${#LIST[@]} start=$SECONDS
+  printf '\n== 拉取 linux/%s（%d 个镜像）==\n' "$arch" "$total"
   for img in "${LIST[@]}"; do
+    idx=$(( idx + 1 ))
+    printf '\n[%d/%d] %s\n' "$idx" "$total" "$img"
     pull_one "$img" "$arch" || failed+=("$img")
   done
+  printf '\n== linux/%s 结束：成功 %d，失败 %d，耗时 %d 秒 ==\n' \
+    "$arch" "$(( total - ${#failed[@]} ))" "${#failed[@]}" "$(( SECONDS - start ))"
   if (( ${#failed[@]} )); then
-    printf '\n  ✗ %s 个镜像失败:\n' "${#failed[@]}" >&2
+    printf '  ✗ 失败的镜像:\n' >&2
     printf '      %s\n' "${failed[@]}" >&2
     echo "  可重跑本脚本补拉；若反复卡在同一个镜像，先执行: bash pull-images.sh --clean" >&2
     return 1

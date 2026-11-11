@@ -109,11 +109,14 @@ function Invoke-PullOne {
   param([string]$Image, [string]$ArchName)
 
   foreach ($ref in (Get-Candidates -Image $Image)) {
-    Write-Host ("    {0,-58} <- {1}" -f $Image, $ref)
+    Write-Host "    来源: $ref"
+    $t0 = Get-Date
     for ($i = 1; $i -le $script:Retries; $i++) {
-      docker pull --quiet --platform "linux/$ArchName" $ref *> $null
+      # 不加 --quiet：让 docker 显示分层下载进度，大镜像才看得出是否在动
+      docker pull --platform "linux/$ArchName" $ref
       if ($LASTEXITCODE -eq 0) {
         if ($ref -ne $Image) { docker tag $ref $Image | Out-Null }
+        Write-Host ("    ✓ {0}  ({1:N0} 秒)" -f $Image, ((Get-Date) - $t0).TotalSeconds)
         return $true
       }
       if ($i -lt $script:Retries) {
@@ -173,9 +176,22 @@ foreach ($archName in $archs) {
   Write-Host ""
   Write-Host "== 拉取 linux/$archName（$($list.Count) 个镜像）=="
   $failed = @()
+  $idx = 0
+  $start = Get-Date
   foreach ($img in $list) {
+    $idx++
+    Write-Progress -Activity "拉取 linux/$archName" `
+      -Status ("[{0}/{1}] {2}" -f $idx, $list.Count, $img) `
+      -PercentComplete ([int]($idx * 100 / $list.Count))
+    Write-Host ""
+    Write-Host ("[{0}/{1}] {2}" -f $idx, $list.Count, $img)
     if (-not (Invoke-PullOne -Image $img -ArchName $archName)) { $failed += $img }
   }
+  Write-Progress -Activity "拉取 linux/$archName" -Completed
+  Write-Host ""
+  Write-Host ("== linux/{0} 结束：成功 {1}，失败 {2}，耗时 {3} 秒 ==" -f `
+    $archName, ($list.Count - $failed.Count), $failed.Count, `
+    [int]((Get-Date) - $start).TotalSeconds)
   if ($failed.Count -gt 0) {
     Write-Host ""
     Write-Host ("  ✗ {0} 个镜像失败:" -f $failed.Count) -ForegroundColor Red
