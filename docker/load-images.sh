@@ -98,24 +98,17 @@ ENV_ARGS=()
 # （环境变量优先于 --env-file，所以下面这一行会覆盖 .env 的值。）
 export JIUGEBKN_IMAGE_TAG="$host_arch"
 
-# 启动时 compose 读的是 .env，tag 不一致的话 up 会找不到镜像。
-# 与其让人记着改，这里直接改成当前架构（原文件备份为 .env.bak）。
-if [[ -f .env ]]; then
-  env_tag=$(awk -F= '/^JIUGEBKN_IMAGE_TAG=/{sub(/\r$/,"",$2); print $2; exit}' .env 2>/dev/null || true)
-  if [[ "$env_tag" != "$host_arch" ]]; then
-    cp -f .env .env.bak 2>/dev/null || true
-    if grep -q '^JIUGEBKN_IMAGE_TAG=' .env; then
-      sed -i "s|^JIUGEBKN_IMAGE_TAG=.*|JIUGEBKN_IMAGE_TAG=$host_arch|" .env
-    else
-      printf '\nJIUGEBKN_IMAGE_TAG=%s\n' "$host_arch" >> .env
-    fi
-    {
-      echo
-      echo "  ! .env 的 JIUGEBKN_IMAGE_TAG 原为 ${env_tag:-未设置}，与本机架构 $host_arch 不一致"
-      echo "    已自动改为 JIUGEBKN_IMAGE_TAG=$host_arch（原文件备份为 .env.bak）"
-      echo
-    } >&2
-  fi
+# 但启动时 compose 读的是 .env，所以仍要提醒把它改成一致的。
+env_tag=$(awk -F= '/^JIUGEBKN_IMAGE_TAG=/{sub(/\r$/,"",$2); print $2; exit}' .env 2>/dev/null || true)
+if [[ -n "$env_tag" && "$env_tag" != "$host_arch" ]]; then
+  {
+    echo
+    echo "  ! .env 的 JIUGEBKN_IMAGE_TAG=$env_tag 与本机架构 $host_arch 不一致"
+    echo "    本次核对已按本机架构进行；启动前请把 .env 改成:"
+    echo "      JIUGEBKN_IMAGE_TAG=$host_arch"
+    echo "    否则 docker compose up 会找不到镜像。"
+    echo
+  } >&2
 fi
 
 echo "== 核对该栈所需的镜像（本机架构: linux/$host_arch）=="
