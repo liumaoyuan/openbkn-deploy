@@ -1,0 +1,199 @@
+﻿<#
+.SYNOPSIS
+  拉取 JiugeBKN 构建与运行所需的全部镜像（amd64 / arm64 并存）。
+
+.DESCRIPTION
+  只负责"拉取"，不构建、不导出。构建与导出见 package-images.ps1。
+  与 pull-images.sh 等价，供 Windows 环境使用（Windows 为主路径）。
+
+  拉取策略（国内环境，有代理）：
+    1. 先按镜像原名直连（Docker Desktop 配了代理会自动走代理）
+    2. 失败再依次尝试国内镜像源：
+         gcr.io/xxx  -> m.daocloud.io/gcr.io/xxx
+         ghcr.io/xxx -> ghcr.nju.edu.cn/xxx
+       拉下来后自动 tag 回原名，compose.yml 不需要改。
+
+.PARAMETER Arch
+  amd64 / arm64 / both，默认 both。
+
+.PARAMETER Runtime
+  只处理 9 个运行期镜像（会进交付包的那批）。
+
+.PARAMETER BuildBase
+  只处理 8 个构建期基础镜像（不进交付包，但构建时必须有）。
+
+.PARAMETER Check
+  只核对本地架构，不拉取。
+
+.PARAMETER Clean
+  删除清单内全部镜像（含两个架构），用于修复下载中断留下的损坏记录。
+
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File .\pull-images.ps1
+  powershell -ExecutionPolicy Bypass -File .\pull-images.ps1 -Arch arm64 -Check
+#>
+[CmdletBinding()]
+param(
+  [ValidateSet("amd64", "arm64", "both")]
+  [string]$Arch = "both",
+  [switch]$Runtime,
+  [switch]$BuildBase,
+  [switch]$Check,
+  [switch]$Clean
+)
+
+# 原生命令写 stderr（如「镜像不存在」）在 Stop 模式下会变成终止异常，
+# 这里改为 Continue，统一用 $LASTEXITCODE 判断，出错时显式 throw。
+$ErrorActionPreference = "Continue"
+Set-Location -LiteralPath $PSScriptRoot
+
+$script:Retries       = 3
+$script:GhcrMirror    = if ($env:GHCR_MIRROR) { $env:GHCR_MIRROR } else { "ghcr.nju.edu.cn" }
+$script:DaocloudMirror = if ($env:DAOCLOUD_MIRROR) { $env:DAOCLOUD_MIRROR } else { "m.daocloud.io" }
+
+# 换源表：镜像名 -> 优先使用的来源
+$script:PullSources = @{
+  "oryd/hydra:v26.2.0" = "ghcr.io/openbkn-ai/oryd/hydra:v26.2.0"
+}
+
+# 一、运行期镜像：compose.yml 里 image: 字段直接引用的（9 个，进交付包）
+$script:RuntimeImages = @(
+  "alpine:3.20"                                          # config-init 渲染配置
+  "mariadb:11.4"                                         # 主数据库
+  "postgres:16"                                          # Hydra 的库
+  "redis:7.4"                                            # 缓存
+  "opensearchproject/opensearch:2.19.1"                  # 搜索引擎
+  "docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z"    # 对象存储（MinIO 分支）
+  "nginx:1.27-alpine"                                    # 网关
+  "oryd/hydra:v26.2.0"                                   # OAuth 服务
+  "ghcr.io/openbkn-ai/bitnami/kafka:3.9.0-debian-12-r10" # 消息队列
+)
+
+# 二、构建期基础镜像：Dockerfile 里 FROM 引用的（8 个，不进交付包）
+$script:BuildImages = @(
+  "golang:1.26.9"                                        # 8 个 Go 服务的编译环境
+  "python:3.12-slim"                                     # bkn-agent
+  "python:3.11-slim"                                     # sandbox-control-plane
+  "ubuntu:24.04"                                         # bkn-backend / data-migrator / oss-gateway
+  "node:22-alpine"                                       # studio 前端构建
+  "ghcr.io/openbkn-ai/model-factory-base:v2"             # mf-model-api / mf-model-manager（563MB）
+  "ghcr.io/openbkn-ai/vega-python-base:0.2.0"            # vega-backend 运行阶段
+  "gcr.io/distroless/static-debian12:nonroot"            # agent-observability 运行阶段
+)
+
+if ($Runtime -and $BuildBase) { throw "-Runtime 和 -BuildBase 不能同时使用" }
+$list = if ($Runtime) { $script:RuntimeImages }
+        elseif ($BuildBase) { $script:BuildImages }
+        else { $script:RuntimeImages + $script:BuildImages }
+
+$archs = if ($Arch -eq "both") { @("amd64", "arm64") } else { @($Arch) }
+
+function Write-Info([string]$Message) { Write-Host "  $Message" }
+function Write-Warn([string]$Message) { Write-Host "  ! $Message" -ForegroundColor Yellow }
+
+function Get-Candidates {
+  param([string]$Image)
+  $result = @()
+  if ($script:PullSources.ContainsKey($Image)) { $result += $script:PullSources[$Image] }
+  $result += $Image
+  if ($Image -like "gcr.io/*") {
+    $result += "$($script:DaocloudMirror)/$Image"
+  }
+  if ($Image -like "ghcr.io/*") {
+    $result += "$($script:GhcrMirror)/" + ($Image -replace "^ghcr\.io/", "")
+  }
+  return $result | Select-Object -Unique
+}
+
+function Invoke-PullOne {
+  param([string]$Image, [string]$ArchName)
+
+  foreach ($ref in (Get-Candidates -Image $Image)) {
+    Write-Host ("    {0,-58} <- {1}" -f $Image, $ref)
+    for ($i = 1; $i -le $script:Retries; $i++) {
+      docker pull --quiet --platform "linux/$ArchName" $ref *> $null
+      if ($LASTEXITCODE -eq 0) {
+        if ($ref -ne $Image) { docker tag $ref $Image | Out-Null }
+        return $true
+      }
+      if ($i -lt $script:Retries) {
+        Write-Warn ("第 {0}/{1} 次失败，10 秒后重试" -f $i, $script:Retries)
+        Start-Sleep -Seconds 10
+      }
+    }
+    Write-Warn "✗ $ref 拉取失败"
+  }
+  return $false
+}
+
+function Test-Arch {
+  param([string]$ArchName)
+
+  Write-Host ""
+  Write-Host "== 核对 linux/$ArchName =="
+  $bad = 0
+  foreach ($img in $list) {
+    $actual = (docker image inspect --platform "linux/$ArchName" --format '{{.Architecture}}' $img 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($actual)) {
+      Write-Host ("  ✗ {0,-58} 缺失" -f $img) -ForegroundColor Red
+      $bad++
+    }
+    elseif ($actual -ne $ArchName) {
+      Write-Host ("  ✗ {0,-58} {1}" -f $img, $actual) -ForegroundColor Red
+      $bad++
+    }
+    else {
+      Write-Host ("  ✓ {0,-58} {1}" -f $img, $actual)
+    }
+  }
+  return ($bad -eq 0)
+}
+
+# ---------------------------------------------------------------------------
+# 主流程
+# ---------------------------------------------------------------------------
+if ($Clean) {
+  Write-Host "== 删除清单内的全部镜像（含两个架构）=="
+  foreach ($img in $list) {
+    docker image rm -f $img *> $null
+    if ($LASTEXITCODE -eq 0) { Write-Info "已删除 $img" }
+  }
+  Write-Host "完成，可重新执行 .\pull-images.ps1"
+  return
+}
+
+$status = $true
+
+foreach ($archName in $archs) {
+  if ($Check) {
+    if (-not (Test-Arch -ArchName $archName)) { $status = $false }
+    continue
+  }
+
+  Write-Host ""
+  Write-Host "== 拉取 linux/$archName（$($list.Count) 个镜像）=="
+  $failed = @()
+  foreach ($img in $list) {
+    if (-not (Invoke-PullOne -Image $img -ArchName $archName)) { $failed += $img }
+  }
+  if ($failed.Count -gt 0) {
+    Write-Host ""
+    Write-Host ("  ✗ {0} 个镜像失败:" -f $failed.Count) -ForegroundColor Red
+    $failed | ForEach-Object { Write-Host "      $_" -ForegroundColor Red }
+    Write-Host "  可重跑本脚本补拉；若反复卡在同一个镜像，先执行 -Clean" -ForegroundColor Red
+    $status = $false
+  }
+  else {
+    Write-Info "linux/$archName 全部就绪"
+  }
+}
+
+if (-not $status) { exit 1 }
+
+if ($Check) {
+  Write-Host "全部镜像在 $($archs -join ', ') 上均已就绪"
+}
+else {
+  Write-Host ""
+  Write-Host "下一步: powershell -ExecutionPolicy Bypass -File .\package-images.ps1 -Arch amd64   # 或 arm64 / both"
+}

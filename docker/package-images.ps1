@@ -1,106 +1,251 @@
 ﻿<#
 .SYNOPSIS
-  打包本栈所需的全部 Docker 镜像，用于迁移到内网/离线机器。
+  打包 JiugeBKN 镜像：按架构构建应用镜像并导出 tar。
 
 .DESCRIPTION
-  与 package-images.sh 等价，供纯 PowerShell 环境使用。
-  镜像清单来自 docker compose config --images；应用镜像由本机工作区的
-  bkn-foundry / bkn-studio 源码构建，不使用 GitHub Actions 产物。
+  只负责"构建 + 导出"，不拉取镜像。所需镜像请先执行 pull-images.ps1。
+  与 package-images.sh 等价，供 Windows 环境使用（Windows 为主路径）。
 
-.PARAMETER Output
-  输出 tar 路径，默认 ..\build\jiuge-bkn-images.tar
+  镜像 tag：
+    - 包内 tag 与 .env 的 JIUGEBKN_IMAGE_TAG 一致（默认 local），目标机无需改配置。
+    - 打包完成后，应用镜像会额外打上 <tag>-<arch> 标签，
+      例如 jiuge-bkn/bkn-safe:local-amd64 / :local-arm64，
+      这样两套架构可以同时留在本机，互不覆盖。
 
-.PARAMETER SkipBuild
-  跳过 docker compose build，直接打包现有镜像
+.PARAMETER Arch
+  amd64 / arm64 / both。
 
 .PARAMETER List
-  只列出镜像清单与体积，不导出
+  只列出镜像清单和本地架构，不构建、不导出。
+
+.PARAMETER BuildOnly
+  只构建应用镜像。
+
+.PARAMETER SaveOnly
+  只校验并导出（构建已完成时用）。
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File .\package-images.ps1 -List
-  powershell -ExecutionPolicy Bypass -File .\package-images.ps1
+  powershell -ExecutionPolicy Bypass -File .\package-images.ps1 -Arch amd64
+  powershell -ExecutionPolicy Bypass -File .\package-images.ps1 -Arch both
+  powershell -ExecutionPolicy Bypass -File .\package-images.ps1 -Arch arm64 -List
 #>
 [CmdletBinding()]
 param(
-  [string]$Output = "..\build\jiuge-bkn-images.tar",
-  [switch]$SkipBuild,
-  [switch]$List
+  [ValidateSet("amd64", "arm64", "both")]
+  [string]$Arch = "",
+  [switch]$List,
+  [switch]$BuildOnly,
+  [switch]$SaveOnly
 )
 
-$ErrorActionPreference = "Stop"
+# 原生命令写 stderr 在 Stop 模式下会变成终止异常，这里改为 Continue，
+# 统一用 $LASTEXITCODE 判断，出错时显式 throw。
+$ErrorActionPreference = "Continue"
 Set-Location -LiteralPath $PSScriptRoot
 
-# 本脚本已被 pull-images.sh + package-images.sh 取代：
-# 它按构建机自身架构出包，产物不带架构后缀，在 ARM 机器上无法运行，
-# 且没有架构校验——正是之前 Restarting (255) 的成因。保留文件仅为兼容旧文档引用。
-throw @"
-package-images.ps1 已废弃，请改用拆分后的两个脚本（Git Bash 中执行）：
+$BuildDir = "..\build"
+$Override = ".compose-arch.override.yml"
+$AppPrefix = "jiuge-bkn/"
 
-  拉取镜像:  bash pull-images.sh --arch amd64    # 或 arm64 / both
-  构建导出:  bash package-images.sh --arch amd64
-
-两个脚本分别负责拉取和打包，支持 amd64 / arm64 双架构并存。
-"@
+function Write-Step([string]$Message) { Write-Host ""; Write-Host "== $Message ==" }
+function Write-Info([string]$Message) { Write-Host "  $Message" }
+function Write-Warn([string]$Message) { Write-Host "  ! $Message" -ForegroundColor Yellow }
 
 if (-not (Test-Path -LiteralPath ".env")) {
   throw "缺少 .env，请先复制 .env.example 为 .env 并填写密码"
 }
 
-if (-not $List -and -not $SkipBuild) {
-  # compose 里运行期镜像设了 pull_policy: never（离线机缺失时立即报错），
-  # 所以打包机要显式拉取一次；--ignore-buildable 跳过本地构建的应用镜像。
-  Write-Host "== 拉取运行期镜像 =="
-  docker compose --env-file .env pull --ignore-buildable
-  if ($LASTEXITCODE -ne 0) { throw "docker compose pull 失败" }
-
-  Write-Host "== 构建应用镜像 =="
-  docker compose --env-file .env build
-  if ($LASTEXITCODE -ne 0) { throw "docker compose build 失败" }
+# 本机架构
+$hostArch = (docker version --format '{{.Server.Arch}}' 2>$null | Out-String).Trim()
+if ([string]::IsNullOrWhiteSpace($hostArch) -or $hostArch -eq "unknown") {
+  $hostArch = (uname -m 2>$null | Out-String).Trim()
+}
+switch -Regex ($hostArch) {
+  '^(x86_64|amd64)$'  { $hostArch = "amd64" }
+  '^(aarch64|arm64)' { $hostArch = "arm64" }
 }
 
+if ([string]::IsNullOrWhiteSpace($Arch)) {
+  $Arch = $hostArch
+  Write-Info "未指定 -Arch，按本机架构处理: $Arch"
+}
+$archs = if ($Arch -eq "both") { @("amd64", "arm64") } else { @($Arch) }
+
+# 基础 tag：来自 .env，包内镜像用它命名，目标机不需要改配置
+$envLine = Select-String -LiteralPath ".env" -Pattern '^JIUGEBKN_IMAGE_TAG=' | Select-Object -First 1
+$baseTag = if ($envLine) { ($envLine.Line -split '=', 2)[1].Trim() } else { "local" }
+if ([string]::IsNullOrWhiteSpace($baseTag)) { $baseTag = "local" }
+
+Write-Info "本机架构: $hostArch    目标架构: $($archs -join ',')    镜像 tag: $baseTag"
+
+# 交叉构建的环境检查
+foreach ($archName in $archs) {
+  if ($archName -eq $hostArch) { continue }
+  docker buildx version *> $null
+  if ($LASTEXITCODE -ne 0) { throw "交叉构建需要 docker buildx 插件（原生构建不需要）" }
+  $platforms = (docker buildx inspect --bootstrap 2>$null | Select-String '^Platforms:').Line
+  if ($platforms -notmatch [regex]::Escape("linux/$archName")) {
+    throw "构建器不支持 linux/$archName，请先启用 QEMU 模拟（binfmt / qemu-user-static）"
+  }
+  Write-Warn "linux/$archName 与本机不同，构建走 QEMU 模拟，耗时明显增加"
+  break
+}
+
+# 镜像清单
 $images = @(docker compose --env-file .env config --images | Sort-Object -Unique)
 if ($images.Count -eq 0) { throw "未从 compose 解析到任何镜像" }
 
-if ($List) {
+$appImages = @($images | Where-Object { $_ -like "$AppPrefix*" })
+$runtimeImages = @($images | Where-Object { $_ -notlike "$AppPrefix*" })
+Write-Info ("共 {0} 个镜像：应用镜像 {1} 个，第三方镜像 {2} 个" -f $images.Count, $appImages.Count, $runtimeImages.Count)
+
+function Get-ImageArch {
+  param([string]$Image, [string]$ArchName)
+  $a = (docker image inspect --platform "linux/$ArchName" --format '{{.Architecture}}' $Image 2>$null | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) { return "" }
+  return $a
+}
+
+function Show-List {
+  param([string]$ArchName)
+
+  Write-Step "镜像清单（linux/$ArchName）"
   $total = [int64]0
   foreach ($img in $images) {
-    $sizeText = docker image inspect --format '{{.Size}}' $img 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $sizeText) {
-      Write-Host ("  缺失  {0}" -f $img)
-      continue
-    }
-    $size = [int64]$sizeText
+    $a = Get-ImageArch -Image $img -ArchName $ArchName
+    $sizeText = (docker image inspect --format '{{.Size}}' $img 2>$null | Out-String).Trim()
+    $size = 0
+    if ($sizeText) { $size = [int64]$sizeText }
     $total += $size
-    Write-Host ("  {0,-58} {1,8:N0} MB" -f $img, ($size / 1MB))
+    $human = if ($size -gt 0) { "{0:N0} MB" -f ($size / 1MB) } else { "缺失" }
+    $shown = if ($a) { $a } else { "-" }
+    Write-Host ("  {0,-58} {1,-8} {2}" -f $img, $shown, $human)
   }
   Write-Host ("共 {0} 个镜像，约 {1:N1} GB（解压后口径）" -f $images.Count, ($total / 1GB))
-  return
+  Write-Host "架构列显示 - 表示本地还没有 linux/$ArchName 版本，先执行 pull-images.ps1"
 }
 
-$outDir = Split-Path -Parent $Output
-if ([string]::IsNullOrWhiteSpace($outDir)) { $outDir = "." }
-if (-not (Test-Path -LiteralPath $outDir)) {
-  New-Item -ItemType Directory -Path $outDir | Out-Null
+function Write-Override {
+  param([string]$ArchName)
+
+  $services = @(docker compose --env-file .env config --services)
+  $lines = @(
+    "# 由 package-images.ps1 生成，仅用于注入构建平台，退出时自动删除。"
+    "services:"
+  )
+  foreach ($svc in $services) {
+    $lines += "  ${svc}:"
+    $lines += "    platform: linux/$ArchName"
+  }
+  Set-Content -LiteralPath $Override -Value $lines -Encoding ASCII
 }
 
-$manifest = Join-Path $outDir "images.txt"
-Write-Host ("== 导出 {0} 个镜像 ==" -f $images.Count)
-$images | Set-Content -LiteralPath $manifest -Encoding ASCII
+function Invoke-Build {
+  param([string]$ArchName)
 
-docker save -o $Output $images
-if ($LASTEXITCODE -ne 0) { throw "docker save 失败" }
+  Write-Step "构建应用镜像（linux/$ArchName）"
+  # 显式指定 tag：保证包内镜像名与 .env 一致，且不受外部环境影响
+  $env:JIUGEBKN_IMAGE_TAG = $baseTag
+  $start = Get-Date
+  docker compose --env-file .env -f compose.yml -f $Override build --progress plain
+  if ($LASTEXITCODE -ne 0) { throw "构建失败（linux/$ArchName）" }
+  $mins = [int]((Get-Date) - $start).TotalMinutes
+  Write-Info "构建完成，耗时 $mins 分钟"
+}
 
-$hash = (Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash.ToLower()
-# 必须显式写 LF：Set-Content 在 Windows 上会写 CRLF，文件名末尾多一个 \r，
-# Linux 上执行 sha256sum -c 会报 "FAILED open or read"。
-$shaPath = [System.IO.Path]::Combine((Get-Location).ProviderPath, "$Output.sha256")
-[System.IO.File]::WriteAllText(
-  $shaPath,
-  ("{0}  {1}`n" -f $hash, (Split-Path -Leaf $Output)),
-  (New-Object System.Text.ASCIIEncoding)
-)
+function Test-ImageArch {
+  param([string]$ArchName)
 
-Write-Host "== 完成 =="
-Get-Item -LiteralPath $Output | Select-Object FullName, @{n = 'SizeGB'; e = { [math]::Round($_.Length / 1GB, 2) } } | Format-List
-Write-Host "把镜像 tar、.sha256、images.txt 与本目录一起拷贝到内网机器，"
-Write-Host "在内网机器上执行: powershell -ExecutionPolicy Bypass -File .\load-images.ps1"
+  Write-Step "校验架构（目标 $ArchName）"
+  $bad = @()
+  foreach ($img in $images) {
+    $a = Get-ImageArch -Image $img -ArchName $ArchName
+    if ([string]::IsNullOrWhiteSpace($a)) {
+      $bad += "$img  （本地没有 linux/$ArchName 版本）"
+    }
+    elseif ($a -ne $ArchName) {
+      $bad += "$img  ($a)"
+    }
+  }
+  if ($bad.Count -gt 0) {
+    Write-Host ""
+    Write-Host "以下镜像不是 $ArchName，导出后无法在目标机运行:" -ForegroundColor Red
+    $bad | ForEach-Object { Write-Host "  ✗ $_" -ForegroundColor Red }
+    throw "先执行: powershell -ExecutionPolicy Bypass -File .\pull-images.ps1 -Arch $ArchName"
+  }
+  Write-Info "$($images.Count) 个镜像全部为 linux/$ArchName"
+}
+
+function Save-Images {
+  param([string]$ArchName)
+
+  Write-Step "导出镜像包（linux/$ArchName）"
+  if (-not (Test-Path -LiteralPath $BuildDir)) {
+    New-Item -ItemType Directory -Path $BuildDir | Out-Null
+  }
+
+  $out = Join-Path $BuildDir "jiuge-bkn-images-$ArchName.tar"
+
+  # 带 --platform：本机可能同时存有同一 tag 的另一个架构，不带会一起导出
+  docker save --platform "linux/$ArchName" -o $out $images
+  if ($LASTEXITCODE -ne 0) { throw "docker save 失败" }
+
+  $manifest = Join-Path $BuildDir "images-$ArchName.txt"
+  $rows = @(("{0,-58} {1}" -f "# image", "architecture"))
+  foreach ($img in $images) {
+    $rows += ("{0,-58} {1}" -f $img, (Get-ImageArch -Image $img -ArchName $ArchName))
+  }
+  # 显式 LF：Set-Content 会写 CRLF，Linux 上读文件名会带 \r
+  $manifestPath = [System.IO.Path]::Combine((Get-Location).ProviderPath, $manifest)
+  [System.IO.File]::WriteAllText($manifestPath, ($rows -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
+
+  $hash = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLower()
+  $shaPath = [System.IO.Path]::Combine((Get-Location).ProviderPath, "$out.sha256")
+  [System.IO.File]::WriteAllText($shaPath, ("{0}  {1}`n" -f $hash, (Split-Path -Leaf $out)), (New-Object System.Text.ASCIIEncoding))
+
+  $info = Get-Item -LiteralPath $out
+  Write-Info ("产物: {0}  ({1:N2} GB)" -f $info.FullName, ($info.Length / 1GB))
+}
+
+function Set-ArchTag {
+  param([string]$ArchName)
+
+  Write-Step "标注架构标签（$baseTag-$ArchName）"
+  foreach ($img in $appImages) {
+    $base = $img -replace ':[^:]*$', ''
+    docker tag $img "${base}:$baseTag-$ArchName"
+  }
+  Write-Info "应用镜像已打上 :$baseTag-$ArchName，amd64 / arm64 两套可同时保留"
+  Write-Info "（compose 用的 :$baseTag 仍指向本次构建的架构）"
+}
+
+# ---------------------------------------------------------------------------
+# 主流程
+# ---------------------------------------------------------------------------
+try {
+  foreach ($archName in $archs) {
+    if ($List) {
+      Show-List -ArchName $archName
+      continue
+    }
+    if (-not $SaveOnly) {
+      Write-Override -ArchName $archName
+      Invoke-Build -ArchName $archName
+      if ($BuildOnly) { continue }
+    }
+    Test-ImageArch -ArchName $archName
+    Save-Images -ArchName $archName
+    Set-ArchTag -ArchName $archName
+  }
+}
+finally {
+  if (Test-Path -LiteralPath $Override) { Remove-Item -LiteralPath $Override -Force }
+}
+
+if (-not $List) {
+  Write-Step "完成"
+  foreach ($archName in $archs) {
+    Write-Host "  build\jiuge-bkn-images-$archName.tar  → 拷贝到目标机后执行:"
+    Write-Host "    bash load-images.sh ../build/jiuge-bkn-images-$archName.tar"
+  }
+}
