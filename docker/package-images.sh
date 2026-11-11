@@ -14,6 +14,11 @@
 #   <输出文件>.sha256     校验和
 #   images.txt            同一目录下的镜像清单，供导入脚本核对
 #
+# 注意:
+#   本脚本按【当前机器架构】产出镜像，包名不带架构后缀。
+#   ARM 机器（鲲鹏/飞腾，uname -m 为 aarch64）必须改用 package-images-arm64.sh，
+#   否则导入后所有容器会 exec format error、以 Restarting (255) 无限重启。
+#
 # 说明:
 #   镜像清单来自 `docker compose config --images`，即 compose 中所有服务的
 #   image 字段——应用镜像的 image 名由 compose 固定为 jiuge-bkn/<service>:<tag>，
