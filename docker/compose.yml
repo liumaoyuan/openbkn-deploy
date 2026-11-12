@@ -445,11 +445,18 @@ services:
       kafka: {condition: service_healthy}
       data-migrator: {condition: service_completed_successfully}
       bkn-safe: {condition: service_started}
+      agent-observability: {condition: service_started}
     environment:
       BKN_TRACE_EVIDENCE_INGEST_TOKEN: ${BKN_TRACE_EVIDENCE_INGEST_TOKEN}
       BKN_TRACE_ARTIFACT_INGEST_TOKEN: ${BKN_TRACE_ARTIFACT_INGEST_TOKEN}
       BKN_PROVENANCE_BOOTSTRAP_TOKEN: ${BKN_PROVENANCE_BOOTSTRAP_TOKEN}
       BKN_TRACE_EVIDENCE_PUBLISHER_ENABLED: "false"
+      # 智能问答（public 执行）要求 Context Loader 能开启 trace 生命周期会话；
+      # 缺这三项时 bkn_start_interaction 直接失败，bkn-agent 返回
+      # BknAgent.Execution.Unavailable。内部 8081 提供 lifecycle，8080 接收 evidence artifact。
+      BKN_TRACE_CORE_URL: http://agent-observability:8081
+      BKN_TRACE_ARTIFACT_ENDPOINT: http://agent-observability:8080/api/agent-observability/v1/evidence/artifacts
+      BKN_TRACE_ARTIFACT_TOKEN: ${BKN_TRACE_EVIDENCE_INGEST_TOKEN}
     volumes:
       - ./config/agent-retrieval:/sysvol/config:ro
       - ./config/agent-retrieval/agent-retrieval-secret.yaml:/sysvol/secret/agent-retrieval-secret.yaml:ro
@@ -531,7 +538,8 @@ services:
       RDSPASS: ${MARIADB_PASSWORD}
       HYDRA_ADMIN_BASE: http://bkn-safe-hydra-admin:4445
       BKN_SAFE_BASE: http://bkn-safe:3000/api/safe/v1
-      MF_MODEL_API_PRIVATE_BASE: http://mf-model-api:9898
+      # 必须是完整私网前缀；只写 host 会落到公共面，被 auth 中间件 401。
+      MF_MODEL_API_PRIVATE_BASE: http://mf-model-api:9898/api/private/mf-model-api/v1
       OPERATOR_INTEGRATION_BASE: http://agent-operator-integration:9000
       CONTEXT_LOADER_MCP_URL: http://agent-retrieval:30780/api/agent-retrieval/v1/mcp/
       CHECKPOINTER_BACKEND: mysql
