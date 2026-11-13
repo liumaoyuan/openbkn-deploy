@@ -513,6 +513,34 @@ services:
     restart: unless-stopped
     networks: [jiuge-bkn]
 
+  # 一次性任务：确保 MinIO 桶存在，并把内置 MinIO 注册为默认对象存储。
+  # 缺少这一步时，执行工厂的 SKILL 包上传会因查不到默认存储
+  # （desc.OSSGatewayDefaultStorageNotFound）或桶不存在（NoSuchBucket）而失败。
+  #
+  # 用 sandbox-control-plane 镜像执行：离线包内只有它自带 S3 客户端（boto3），
+  # 既能建桶也能调 OSS 网关；不额外引入镜像。幂等：桶/存储都存在时直接跳过，
+  # 失败只影响本容器，不阻塞其他服务。
+  oss-storage-init:
+    image: jiuge-bkn/sandbox-control-plane:${JIUGEBKN_IMAGE_TAG:-local}
+    pull_policy: never
+    depends_on:
+      minio: {condition: service_healthy}
+      oss-gateway-backend: {condition: service_started}
+    environment:
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_REGION: us-east-1
+      BKN_OSS_BUCKET: ${OSS_DEFAULT_BUCKET:-jiuge-bkn-objects}
+      BKN_OSS_STORAGE_NAME: ${OSS_DEFAULT_STORAGE_NAME:-minio-default}
+    volumes:
+      - ./init-oss-storage.py:/init-oss-storage.py:ro
+    # entrypoint 与 command 同时写，避免镜像自带的 uvicorn CMD 被当作参数追加。
+    entrypoint: ["python"]
+    command: ["/init-oss-storage.py"]
+    restart: "no"
+    networks: [jiuge-bkn]
+
   bkn-agent:
     image: jiuge-bkn/bkn-agent:${JIUGEBKN_IMAGE_TAG:-local}
     build:
