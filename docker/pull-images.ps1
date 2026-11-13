@@ -79,12 +79,15 @@ $script:RuntimeImages = @(
   "ghcr.io/openbkn-ai/bitnami/kafka:3.9.0-debian-12-r10" # 消息队列
 )
 
-# 二、构建期基础镜像：Dockerfile 里 FROM 引用的（8 个，不进交付包）
+# 二、构建期基础镜像：Dockerfile 里 FROM 引用的（10 个，不进交付包）
+#     这里必须与各 Dockerfile 的 FROM 默认值逐一对齐，漏一个，
+#     package-images.ps1 在构建时就会现拉一次（慢且不可控）。
 $script:BuildImages = @(
   "golang:1.26.9"                                        # 8 个 Go 服务的编译环境
   "python:3.12-slim"                                     # bkn-agent
   "python:3.11-slim"                                     # sandbox-control-plane
-  "ubuntu:24.04"                                         # bkn-backend / data-migrator / oss-gateway
+  "ubuntu:24.04"                                         # bkn-backend / ontology-query / data-migrator / oss-gateway
+  "ubuntu:22.04"                                         # agent-retrieval / operator-integration（Dockerfile 里叫 baseImage）
   "node:22-alpine"                                       # studio 前端构建
   "opensearchproject/opensearch:2.19.1"                  # 自建 opensearch 镜像的来源（见 opensearch/Dockerfile）
   "ghcr.io/openbkn-ai/model-factory-base:v2"             # mf-model-api / mf-model-manager（563MB）
