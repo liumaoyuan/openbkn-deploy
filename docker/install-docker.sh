@@ -10,7 +10,11 @@
 # 用法：
 #   sudo bash install-docker.sh                          # 自动识别架构和安装包
 #   sudo bash install-docker.sh --check                  # 只打印识别结果，不安装
+#   sudo bash install-docker.sh --compose-only           # 本机已有 docker，只装 compose 插件
 #   sudo bash install-docker.sh <docker.tgz> [compose]   # 手动指定（兼容旧用法）
+#
+# --compose-only 只把 compose 插件装到 /usr/local/lib/docker/cli-plugins，
+# 不改 systemd、不改 daemon.json、不启停 docker；要求本机已有 docker 命令。
 #
 # 脚本做四件事：
 #   1. 把 docker / dockerd / containerd / runc 等装到 /usr/local/bin
@@ -37,11 +41,13 @@ usage() {
 }
 
 CHECK_ONLY=0
+COMPOSE_ONLY=0
 ARGS=()
 for arg in "$@"; do
   case "$arg" in
     -h | --help) usage ;;
     --check) CHECK_ONLY=1 ;;
+    --compose-only) COMPOSE_ONLY=1 ;;
     *) ARGS+=("$arg") ;;
   esac
 done
@@ -66,7 +72,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-if [[ -z "$TGZ" ]]; then
+if [[ -z "$TGZ" && "$COMPOSE_ONLY" != "1" ]]; then
   # 同目录下可能有多个版本，按版本号取最新的一个。
   mapfile -t CANDIDATES < <(ls -1 "${SCRIPT_DIR}/app/${APP_DIR}"/docker-*.tgz 2>/dev/null | sort -V)
   if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
@@ -92,12 +98,18 @@ if [[ -z "$COMPOSE" ]]; then
   exit 1
 fi
 
-[[ -f "$TGZ" ]] || { echo "找不到 Docker 静态包: $TGZ" >&2; exit 1; }
+if [[ "$COMPOSE_ONLY" != "1" ]]; then
+  [[ -f "$TGZ" ]] || { echo "找不到 Docker 静态包: $TGZ" >&2; exit 1; }
+fi
 [[ -f "$COMPOSE" ]] || { echo "找不到 compose 插件: $COMPOSE" >&2; exit 1; }
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
   echo "架构        : $(uname -m) (app/${APP_DIR})"
-  echo "Docker 包   : $TGZ"
+  if [[ "$COMPOSE_ONLY" == "1" ]]; then
+    echo "模式        : 只安装 compose 插件（不动 Docker Engine）"
+  else
+    echo "Docker 包   : $TGZ"
+  fi
   echo "Compose 插件: $COMPOSE"
   exit 0
 fi
@@ -105,6 +117,23 @@ fi
 if [[ $EUID -ne 0 ]]; then
   echo "请用 root 运行: sudo bash $0" >&2
   exit 1
+fi
+
+if [[ "$COMPOSE_ONLY" == "1" ]]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "未检测到 docker 命令：compose 插件必须配合已安装的 Docker Engine 才能使用。" >&2
+    echo "如果还没装 Docker，请去掉 --compose-only 重新执行本脚本。" >&2
+    exit 1
+  fi
+  echo "== 安装 docker compose 插件 =="
+  install -d /usr/local/lib/docker/cli-plugins
+  install -m 0755 "$COMPOSE" /usr/local/lib/docker/cli-plugins/docker-compose
+  echo "  已安装到 /usr/local/lib/docker/cli-plugins/docker-compose"
+  docker compose version || {
+    echo "compose 插件无法运行，请确认 docker CLI 版本不低于 v20.10。" >&2
+    exit 1
+  }
+  exit 0
 fi
 
 echo "== 安装 Docker 到 /usr/local/bin =="
