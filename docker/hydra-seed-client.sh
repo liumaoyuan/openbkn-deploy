@@ -1,5 +1,10 @@
 #!/bin/sh
-# 由 hydra-client-seed 服务调用：按 docker/.env 注册/更新 Studio 的 OAuth 客户端。
+# 由 hydra-client-seed 服务调用：按 docker/.env 注册/更新 OpenBKN 的 OAuth 客户端。
+#
+# 注册三类客户端：
+#   openbkn-studio  Studio 网页登录（authorization_code）
+#   openbkn-cli     CLI 浏览器登录（authorization_code + 本地回调）
+#   openbkn-sdk     CLI 设备码登录（device_code）
 #
 # Hydra 的行为：
 #   PUT  /admin/clients/{id}  只能更新已存在的客户端，不存在时返回 404
@@ -11,16 +16,46 @@ set -u
 ADMIN="${HYDRA_ADMIN:-http://bkn-safe-hydra-admin:4445}"
 BASE="${WEB_BASE_URL:-http://localhost:8080}"
 BASE="${BASE%/}"
-CLIENT_ID="openbkn-studio"
 
-BODY=$(cat <<JSON
+STUDIO_CLIENT_ID="openbkn-studio"
+STUDIO_BODY=$(cat <<JSON
 {
-  "client_id": "${CLIENT_ID}",
+  "client_id": "${STUDIO_CLIENT_ID}",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
   "redirect_uris": ["$BASE/studio/callback"],
   "post_logout_redirect_uris": ["$BASE/studio/", "$BASE/studio"],
+  "scope": "openid offline",
+  "audience": ["bkn-safe"]
+}
+JSON
+)
+
+# CLI 浏览器登录：0.1.0 SDK 默认监听 127.0.0.1:9010，并用 PKCE。
+CLI_CLIENT_ID="openbkn-cli"
+CLI_BODY=$(cat <<'JSON'
+{
+  "client_id": "openbkn-cli",
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "redirect_uris": ["http://127.0.0.1:9010/callback"],
+  "post_logout_redirect_uris": ["http://127.0.0.1:9010/successful-logout"],
+  "scope": "openid offline all",
+  "audience": ["bkn-safe"]
+}
+JSON
+)
+
+# CLI 设备码登录（RFC 8628），不依赖本地回调端口。
+SDK_CLIENT_ID="openbkn-sdk"
+SDK_BODY=$(cat <<'JSON'
+{
+  "client_id": "openbkn-sdk",
+  "grant_types": ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
   "scope": "openid offline",
   "audience": ["bkn-safe"]
 }
@@ -41,8 +76,9 @@ done
 write_client() {
   method="$1"
   url="$2"
+  body="$3"
   code=$(curl -sS -o /tmp/seed-body -w '%{http_code}' \
-    -X "$method" -H 'Content-Type: application/json' --data "$BODY" "$url" || echo 000)
+    -X "$method" -H 'Content-Type: application/json' --data "$body" "$url" || echo 000)
   echo "  $method $url -> $code"
   case "$code" in
     200 | 201 | 204) return 0 ;;
@@ -51,33 +87,44 @@ write_client() {
   esac
 }
 
-# 重试：等 hydra 真正可写，同时容忍瞬时错误
-attempt=0
-while [ "$attempt" -lt 5 ]; do
-  attempt=$((attempt + 1))
-  echo "第 ${attempt} 次注册 $CLIENT_ID (base=$BASE)"
+seed_client() {
+  client_id="$1"
+  body="$2"
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    attempt=$((attempt + 1))
+    echo "第 ${attempt} 次注册 $client_id (base=$BASE)"
 
-  code=$(curl -sS -o /tmp/seed-body -w '%{http_code}' \
-    -X PUT -H 'Content-Type: application/json' --data "$BODY" \
-    "$ADMIN/admin/clients/$CLIENT_ID" || echo 000)
+    code=$(curl -sS -o /tmp/seed-body -w '%{http_code}' \
+      -X PUT -H 'Content-Type: application/json' --data "$body" \
+      "$ADMIN/admin/clients/$client_id" || echo 000)
 
-  if [ "$code" = "200" ] || [ "$code" = "201" ] || [ "$code" = "204" ]; then
-    echo "openbkn-studio 客户端已更新: $BASE"
-    exit 0
-  fi
-
-  if [ "$code" = "404" ]; then
-    # 客户端不存在：用 POST 创建
-    if write_client POST "$ADMIN/admin/clients"; then
-      echo "openbkn-studio 客户端已创建: $BASE"
-      exit 0
+    if [ "$code" = "200" ] || [ "$code" = "201" ] || [ "$code" = "204" ]; then
+      echo "$client_id 客户端已更新"
+      return 0
     fi
-  else
-    echo "PUT 返回 $code: $(cat /tmp/seed-body 2>/dev/null)" >&2
-  fi
 
-  sleep 3
-done
+    if [ "$code" = "404" ]; then
+      # 客户端不存在：用 POST 创建
+      if write_client POST "$ADMIN/admin/clients" "$body"; then
+        echo "$client_id 客户端已创建"
+        return 0
+      fi
+    else
+      echo "PUT 返回 $code: $(cat /tmp/seed-body 2>/dev/null)" >&2
+    fi
 
-echo "注册 openbkn-studio 客户端失败（已重试 ${attempt} 次）" >&2
-exit 1
+    sleep 3
+  done
+
+  echo "注册 $client_id 客户端失败（已重试 ${attempt} 次）" >&2
+  return 1
+}
+
+# 重试：等 hydra 真正可写，同时容忍瞬时错误
+seed_client "$STUDIO_CLIENT_ID" "$STUDIO_BODY" || exit 1
+seed_client "$CLI_CLIENT_ID" "$CLI_BODY" || exit 1
+seed_client "$SDK_CLIENT_ID" "$SDK_BODY" || exit 1
+
+echo "OAuth 客户端注册完成"
+exit 0
