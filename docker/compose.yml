@@ -249,7 +249,7 @@ services:
   bkn-safe:
     image: jiuge-bkn/bkn-safe:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry/bkn-safe
+      context: ../../bkn-foundry-main/bkn-safe
       dockerfile: Dockerfile
       args: *go-build-args
     depends_on:
@@ -283,7 +283,7 @@ services:
   data-migrator:
     image: jiuge-bkn/data-migrator:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry
+      context: ../../bkn-foundry-main
       dockerfile: data-migrator/Dockerfile
       # 构建容器默认解析不了 host.docker.internal，git 走代理前必须先注入这条记录。
       extra_hosts:
@@ -320,7 +320,7 @@ services:
   bkn-backend-svc:
     image: jiuge-bkn/bkn-backend:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry
+      context: ../../bkn-foundry-main
       dockerfile: adp/bkn/bkn-backend/docker/Dockerfile
       args: *go-build-args
     depends_on:
@@ -340,7 +340,7 @@ services:
   ontology-query-svc:
     image: jiuge-bkn/ontology-query:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry
+      context: ../../bkn-foundry-main
       dockerfile: adp/bkn/ontology-query/docker/Dockerfile
       args: *go-build-args
     depends_on:
@@ -360,7 +360,7 @@ services:
     image: jiuge-bkn/vega-backend:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       # 与 CI 一致：上下文为 server 目录，Dockerfile 用 COPY . . 读取 server/ 下的源码。
-      context: ../../bkn-foundry/vega/vega-backend/server
+      context: ../../bkn-foundry-main/vega/vega-backend/server
       dockerfile: ../docker/Dockerfile
       args: *go-build-args
     depends_on:
@@ -380,7 +380,7 @@ services:
   mf-model-api:
     image: jiuge-bkn/mf-model-api:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry/infra/mf-model-api
+      context: ../../bkn-foundry-main/infra/mf-model-api
       dockerfile: Dockerfile
       args:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
@@ -408,7 +408,7 @@ services:
   mf-model-manager:
     image: jiuge-bkn/mf-model-manager:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry/infra/mf-model-manager
+      context: ../../bkn-foundry-main/infra/mf-model-manager
       dockerfile: Dockerfile
     depends_on:
       config-init: {condition: service_completed_successfully}
@@ -435,7 +435,7 @@ services:
     image: jiuge-bkn/agent-retrieval:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       # Dockerfile 里的 COPY 使用仓库根相对路径，因此上下文必须是 bkn-foundry 根目录。
-      context: ../../bkn-foundry
+      context: ../../bkn-foundry-main
       dockerfile: adp/context-loader/agent-retrieval/docker/Dockerfile
       args: *go-build-args
     depends_on:
@@ -467,7 +467,7 @@ services:
     image: jiuge-bkn/agent-operator-integration:${JIUGEBKN_IMAGE_TAG:-local}
     build:
       # 同上：Dockerfile 使用仓库根相对路径 COPY。
-      context: ../../bkn-foundry
+      context: ../../bkn-foundry-main
       dockerfile: adp/execution-factory/operator-integration/docker/Dockerfile
       args:
         <<: *go-build-args
@@ -496,7 +496,7 @@ services:
   oss-gateway-backend:
     image: jiuge-bkn/oss-gateway-backend:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry/infra/oss-gateway-backend
+      context: ../../bkn-foundry-main/infra/oss-gateway-backend
       dockerfile: Dockerfile
       args:
         # 该 Dockerfile 的参数名是 GOPROXY（不是 GOPROXY_URL）。
@@ -544,7 +544,7 @@ services:
   bkn-agent:
     image: jiuge-bkn/bkn-agent:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry/infra/bkn-agent
+      context: ../../bkn-foundry-main/infra/bkn-agent
       dockerfile: Dockerfile
       args:
         # 腾讯云镜像批量下载会频繁 RemoteDisconnected；阿里云实测 3/3 成功且已同步 aiohttp 3.14.5。
@@ -583,7 +583,7 @@ services:
   agent-observability:
     image: jiuge-bkn/agent-observability:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry/bkn-trace/agent-observability
+      context: ../../bkn-foundry-main/bkn-trace/agent-observability
       dockerfile: Dockerfile
       args: *go-build-args
     environment:
@@ -612,10 +612,123 @@ services:
     restart: unless-stopped
     networks: [jiuge-bkn]
 
+  data-ingestion-db-init:
+    image: mariadb:11.4
+    pull_policy: never
+    depends_on:
+      mariadb: {condition: service_healthy}
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_APP_PASSWORD: ${MARIADB_PASSWORD}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mariadb -h mariadb -uroot -p"$$MARIADB_ROOT_PASSWORD" <<'SQL'
+        CREATE DATABASE IF NOT EXISTS data_ingestion CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        GRANT ALL PRIVILEGES ON data_ingestion.* TO 'jiuge-bkn'@'%';
+        FLUSH PRIVILEGES;
+        SQL
+    restart: "no"
+    networks: [jiuge-bkn]
+
+  data-ingestion-files-init:
+    image: alpine:3.20
+    pull_policy: never
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 10001:10001 /data"]
+    volumes:
+      - data-ingestion-files:/data
+    networks: [jiuge-bkn]
+    restart: "no"
+
+  data-ingestion:
+    image: jiuge-bkn/data-ingestion:${JIUGEBKN_IMAGE_TAG:-local}
+    build:
+      context: ../../bkn-foundry-main/adp/data-ingestion
+      dockerfile: Dockerfile
+    depends_on:
+      mariadb: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      bkn-safe: {condition: service_started}
+      hydra: {condition: service_started}
+      mf-model-api: {condition: service_started}
+      mf-model-manager: {condition: service_started}
+      data-ingestion-db-init: {condition: service_completed_successfully}
+      data-ingestion-files-init: {condition: service_completed_successfully}
+    environment:
+      APP_ENV: production
+      DATABASE_URL: mysql+pymysql://jiuge-bkn:${MARIADB_PASSWORD}@mariadb:3306/data_ingestion?charset=utf8mb4
+      DATA_DIR: /data
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: ${DATA_INGESTION_S3_BUCKET:-data-ingestion}
+      S3_PREFIX: data-ingestion
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_REGION: us-east-1
+      S3_FORCE_PATH_STYLE: "true"
+      DATA_INGESTION_AUTH_ENABLED: "true"
+      HYDRA_ADMIN_URL: http://bkn-safe-hydra-admin:4445
+      BKN_SAFE_URL: http://bkn-safe:3000
+      DATA_INGESTION_INTERNAL_TOKEN: ${DATA_INGESTION_INTERNAL_TOKEN}
+      DATA_SOURCE_SECRET_KEY: ${DATA_INGESTION_DATA_SOURCE_SECRET}
+      AGENT_SELF_API_URL: http://127.0.0.1:8000
+      MCP_API_URL: http://127.0.0.1:8000
+      MODEL_API_URL: http://mf-model-api:9898/api/mf-model-api/v1/chat/completions
+      MODEL_MANAGER_URL: http://mf-model-manager:9898
+      MCP_ALLOWED_ROOTS: /data
+      AUTO_SCAN_ENABLED: "true"
+      AUTO_SCAN_TICK_SECONDS: "5"
+      AUTO_SCAN_MAX_FILES_PER_RUN: "20"
+      MAX_UPLOAD_BYTES: "536870912"
+      TZ: UTC
+    volumes:
+      - data-ingestion-files:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    networks: [jiuge-bkn]
+
+  data-ingestion-mcp:
+    image: jiuge-bkn/data-ingestion-mcp:${JIUGEBKN_IMAGE_TAG:-local}
+    build:
+      context: ../../bkn-foundry-main/adp/data-ingestion
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.mcp_server"]
+    depends_on:
+      data-ingestion: {condition: service_healthy}
+    environment:
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8010"
+      MCP_API_URL: http://data-ingestion:8000
+      MCP_ALLOWED_ROOTS: /data
+      MCP_AUTH_ENABLED: "true"
+      MCP_RESOURCE_URL: http://data-ingestion-mcp:8010
+      OAUTH_ISSUER_URL: ${JIUGEBKN_PUBLIC_BASE_URL}
+      DATA_INGESTION_INTERNAL_TOKEN: ${DATA_INGESTION_INTERNAL_TOKEN}
+      TZ: UTC
+    volumes:
+      - data-ingestion-files:/data
+    networks: [jiuge-bkn]
+    restart: unless-stopped
+
   sandbox-control-plane:
     image: jiuge-bkn/sandbox-control-plane:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-foundry/infra/sandbox
+      context: ../../bkn-foundry-main/infra/sandbox
       dockerfile: sandbox_control_plane/Dockerfile
       args:
         # 启用 Dockerfile 内置的 apt/pip 国内镜像分支。
@@ -659,7 +772,7 @@ services:
   studio:
     image: jiuge-bkn/studio:${JIUGEBKN_IMAGE_TAG:-local}
     build:
-      context: ../../bkn-studio
+      context: ../../bkn-studio-main
       dockerfile: Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
@@ -684,6 +797,7 @@ services:
       agent-retrieval: {condition: service_started}
       agent-operator-integration: {condition: service_started}
       agent-observability: {condition: service_started}
+      data-ingestion: {condition: service_started}
       bkn-agent: {condition: service_started}
       studio: {condition: service_started}
     ports:
@@ -713,3 +827,4 @@ volumes:
   kafka-data:
   opensearch-data:
   minio-data:
+  data-ingestion-files:
