@@ -8,7 +8,6 @@ CREATE DATABASE IF NOT EXISTS oss_gateway CHARACTER SET utf8mb4 COLLATE utf8mb4_
 CREATE DATABASE IF NOT EXISTS deploy CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- agent-observability 的审计事件库（migration 031 建表）
 CREATE DATABASE IF NOT EXISTS bkn_audit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS data_ingestion CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 GRANT ALL PRIVILEGES ON bkn_audit.* TO 'jiuge-bkn'@'%';
 
@@ -18,4 +17,3 @@ GRANT ALL PRIVILEGES ON bkn_trace.* TO 'jiuge-bkn'@'%';
 GRANT ALL PRIVILEGES ON sandbox.* TO 'jiuge-bkn'@'%';
 GRANT ALL PRIVILEGES ON adp.* TO 'jiuge-bkn'@'%';
 GRANT ALL PRIVILEGES ON oss_gateway.* TO 'jiuge-bkn'@'%';
-GRANT ALL PRIVILEGES ON data_ingestion.* TO 'jiuge-bkn'@'%';
