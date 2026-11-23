@@ -678,7 +678,8 @@ services:
       AUTO_SCAN_ENABLED: "true"
       AUTO_SCAN_TICK_SECONDS: "5"
       AUTO_SCAN_MAX_FILES_PER_RUN: "20"
-      MAX_UPLOAD_BYTES: "536870912"
+      DEDICATED_RECORD_THRESHOLD: ${DEDICATED_RECORD_THRESHOLD:-100000}
+      MAX_UPLOAD_BYTES: "134217728"
       TZ: UTC
     volumes:
       - data-ingestion-files:/data
