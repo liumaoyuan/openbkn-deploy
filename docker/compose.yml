@@ -294,8 +294,8 @@ services:
         APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
         # 该服务要 git clone GitHub 上的 bkn-comm-py，只有国外流量走 Clash；
         # 国内镜像域名交给 NO_PROXY 直连（apt 已验证支持 no_proxy）。
-        HTTP_PROXY: ${BUILD_HTTP_PROXY:-http://host.docker.internal:7890}
-        HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-http://host.docker.internal:7890}
+        HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
         NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,.local,mirrors.aliyun.com,.aliyun.com,mirrors.cloud.tencent.com,.tencent.com}
     depends_on:
       config-init: {condition: service_completed_successfully}
@@ -766,6 +766,29 @@ services:
     restart: unless-stopped
     networks: [jiuge-bkn, sandbox_network]
 
+  copilot-svc:
+    image: jiuge-bkn/copilot-svc:${JIUGEBKN_IMAGE_TAG:-local}
+    build:
+      context: ../../bkn-foundry/adp/copilot-svc
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
+    pull_policy: never
+    environment:
+      TZ: Asia/Shanghai
+      COPILOT_HOST: 0.0.0.0
+      COPILOT_PORT: "8787"
+      COPILOT_LLM_BASE_URL: ${COPILOT_LLM_BASE_URL:-https://api.deepseek.com/v1}
+      COPILOT_LLM_MODEL: ${COPILOT_LLM_MODEL:-deepseek-chat}
+      COPILOT_LLM_API_KEY: ${COPILOT_LLM_API_KEY:-}
+      COPILOT_SETTINGS_PATH: /data/model-config.json
+      COPILOT_KN_INCLUDE_EXTRA_TYPES: ${COPILOT_KN_INCLUDE_EXTRA_TYPES:-1}
+      COPILOT_KN_INCLUDE_MAPPED_FIELD: ${COPILOT_KN_INCLUDE_MAPPED_FIELD:-1}
+    volumes:
+      - copilot-data:/data
+    restart: unless-stopped
+    networks: [jiuge-bkn]
+
   studio:
     image: jiuge-bkn/studio:${JIUGEBKN_IMAGE_TAG:-local}
     build:
@@ -773,6 +796,7 @@ services:
       dockerfile: Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
+        NODE_MAX_OLD_SPACE: ${NODE_MAX_OLD_SPACE:-4096}
     depends_on:
       config-init: {condition: service_completed_successfully}
     volumes:
@@ -796,6 +820,7 @@ services:
       agent-observability: {condition: service_started}
       data-ingestion: {condition: service_started}
       bkn-agent: {condition: service_started}
+      copilot-svc: {condition: service_started}
       studio: {condition: service_started}
     ports:
       - "${JIUGEBKN_BIND_ADDRESS:-127.0.0.1}:${JIUGEBKN_HTTP_PORT:-8080}:80"
@@ -826,3 +851,4 @@ volumes:
   minio-data:
   data-ingestion-files:
   data-ingestion-config:
+  copilot-data:
