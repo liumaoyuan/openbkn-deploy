@@ -640,6 +640,8 @@ services:
 
   data-ingestion:
     image: jiuge-bkn/data-ingestion:${JIUGEBKN_IMAGE_TAG:-local}
+    ports:
+      - "127.0.0.1:18000:8000"
     build:
       context: ../../bkn-foundry/adp/data-ingestion
       dockerfile: Dockerfile
@@ -768,29 +770,6 @@ services:
     restart: unless-stopped
     networks: [jiuge-bkn, sandbox_network]
 
-  copilot-svc:
-    image: jiuge-bkn/copilot-svc:${JIUGEBKN_IMAGE_TAG:-local}
-    build:
-      context: ../../bkn-foundry/adp/copilot-svc
-      dockerfile: Dockerfile
-      args:
-        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
-    pull_policy: never
-    environment:
-      TZ: Asia/Shanghai
-      COPILOT_HOST: 0.0.0.0
-      COPILOT_PORT: "8787"
-      COPILOT_LLM_BASE_URL: ${COPILOT_LLM_BASE_URL:-https://api.deepseek.com/v1}
-      COPILOT_LLM_MODEL: ${COPILOT_LLM_MODEL:-deepseek-chat}
-      COPILOT_LLM_API_KEY: ${COPILOT_LLM_API_KEY:-}
-      COPILOT_SETTINGS_PATH: /data/model-config.json
-      COPILOT_KN_INCLUDE_EXTRA_TYPES: ${COPILOT_KN_INCLUDE_EXTRA_TYPES:-1}
-      COPILOT_KN_INCLUDE_MAPPED_FIELD: ${COPILOT_KN_INCLUDE_MAPPED_FIELD:-0}
-    volumes:
-      - copilot-data:/data
-    restart: unless-stopped
-    networks: [jiuge-bkn]
-
   studio:
     image: jiuge-bkn/studio:${JIUGEBKN_IMAGE_TAG:-local}
     build:
@@ -806,6 +785,29 @@ services:
     restart: unless-stopped
     networks: [jiuge-bkn]
 
+  copilot-svc:
+    build:
+      context: ../../copilot-svc
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: 
+    image: jiuge-bkn/copilot-svc:amd64
+    pull_policy: never
+    environment:
+      TZ: Asia/Shanghai
+      COPILOT_PORT: "8787"
+      COPILOT_HOST: 0.0.0.0
+      COPILOT_LLM_BASE_URL: ${COPILOT_LLM_BASE_URL:-https://api.deepseek.com/v1}
+      COPILOT_LLM_MODEL: ${COPILOT_LLM_MODEL:-deepseek-chat}
+      COPILOT_LLM_API_KEY: ${COPILOT_LLM_API_KEY:-}
+      COPILOT_SETTINGS_PATH: /data/model-config.json
+      COPILOT_IMPORT_HISTORY_PATH: /data/data-imports.json
+      COPILOT_KN_INCLUDE_EXTRA_TYPES: ${COPILOT_KN_INCLUDE_EXTRA_TYPES:-1}
+      COPILOT_KN_INCLUDE_MAPPED_FIELD: ${COPILOT_KN_INCLUDE_MAPPED_FIELD:-0}
+    volumes:
+      - copilot-data:/data
+    restart: unless-stopped
+    networks: [jiuge-bkn]
   gateway:
     image: nginx:1.27-alpine
     # 离线栈：镜像必须来自本地导入，缺失时立刻报错而不是联网拉取。
@@ -822,7 +824,6 @@ services:
       agent-observability: {condition: service_started}
       data-ingestion: {condition: service_started}
       bkn-agent: {condition: service_started}
-      copilot-svc: {condition: service_started}
       studio: {condition: service_started}
     ports:
       - "${JIUGEBKN_BIND_ADDRESS:-127.0.0.1}:${JIUGEBKN_HTTP_PORT:-8080}:80"
