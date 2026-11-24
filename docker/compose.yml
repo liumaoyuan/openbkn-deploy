@@ -217,6 +217,7 @@ services:
       URLS_SELF_ISSUER: ${JIUGEBKN_PUBLIC_BASE_URL}
       URLS_LOGIN: /login
       URLS_CONSENT: /consent
+      URLS_ERROR: ${JIUGEBKN_PUBLIC_BASE_URL}/studio/callback
       URLS_DEVICE_VERIFICATION: ${JIUGEBKN_PUBLIC_BASE_URL}/device
       URLS_DEVICE_SUCCESS: ${JIUGEBKN_PUBLIC_BASE_URL}/device/success
       SECRETS_SYSTEM: ${HYDRA_SECRETS_SYSTEM}
@@ -269,7 +270,7 @@ services:
       SAFE_HYDRA_ADMIN_URL: http://bkn-safe-hydra-admin:4445
       SAFE_HYDRA_PUBLIC_URL: http://bkn-safe-hydra-public:4444
       SAFE_HYDRA_BROWSER_PUBLIC_URL: ${JIUGEBKN_PUBLIC_BASE_URL}
-      SAFE_OAUTH_STUDIO_BASELINE_REDIRECT_URIS: '["${JIUGEBKN_PUBLIC_BASE_URL}/studio/callback"]'
+      SAFE_OAUTH_STUDIO_BASELINE_REDIRECT_URIS: '["${JIUGEBKN_PUBLIC_BASE_URL}/studio/callback","http://localhost:${JIUGEBKN_HTTP_PORT:-8080}/studio/callback","http://127.0.0.1:${JIUGEBKN_HTTP_PORT:-8080}/studio/callback"]'
       SAFE_BKN_BACKEND_BASE_URL: http://bkn-backend-svc:13014
       SAFE_BKN_AGENT_BASE_URL: http://bkn-agent:30800
       SAFE_EXECUTION_FACTORY_BASE_URL: http://agent-operator-integration:9000
