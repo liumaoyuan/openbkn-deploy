@@ -594,6 +594,7 @@ services:
       BKN_TRACE_EVIDENCE_STORE: memory
       BKN_TRACE_CORE_STORE: mariadb
       BKN_TRACE_CORE_AUTO_MIGRATE: "true"
+      BKN_TRACE_PROJECTION_ENABLED: "true"
       BKN_TRACE_CORE_MARIADB_DSN: jiuge-bkn:${MARIADB_PASSWORD}@tcp(mariadb:3306)/bkn_trace?parseTime=true
       BKN_TRACE_ALLOW_UNAUTHENTICATED_INGEST: "false"
       BKN_TRACE_ALLOW_UNAUTHENTICATED_QUERY: "false"
