@@ -805,6 +805,10 @@ services:
       COPILOT_IMPORT_HISTORY_PATH: /data/data-imports.json
       COPILOT_KN_INCLUDE_EXTRA_TYPES: ${COPILOT_KN_INCLUDE_EXTRA_TYPES:-1}
       COPILOT_KN_INCLUDE_MAPPED_FIELD: ${COPILOT_KN_INCLUDE_MAPPED_FIELD:-0}
+      COPILOT_PLATFORM_MANAGER_URL: ${COPILOT_PLATFORM_MANAGER_URL:-http://mf-model-manager:9898}
+      COPILOT_PLATFORM_MODEL_API_URL: ${COPILOT_PLATFORM_MODEL_API_URL:-http://mf-model-api:9898}
+      COPILOT_PLATFORM_MODEL_ID: ${COPILOT_PLATFORM_MODEL_ID:-}
+      COPILOT_NETWORK_EDIT_DIR: /data/network-edits
     volumes:
       - copilot-data:/data
     restart: unless-stopped
