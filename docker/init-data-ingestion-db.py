@@ -25,8 +25,9 @@ def main() -> None:
         return
 
     url = make_url(value)
-    if url.get_backend_name() not in {"mysql", "mariadb"}:
-        raise RuntimeError("数据入库控制库必须使用 MySQL/MariaDB")
+    backend = url.get_backend_name()
+    if backend not in {"mysql", "mariadb", "postgresql"}:
+        raise RuntimeError("数据入库控制库必须使用 MySQL/MariaDB/PostgreSQL")
 
     database = (url.database or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_]+", database):
@@ -36,8 +37,13 @@ def main() -> None:
     last_error: Exception | None = None
     for _ in range(30):
         try:
+            server_url = (
+                url.set(database="postgres")
+                if backend == "postgresql"
+                else url.set(database=None)
+            )
             engine = create_engine(
-                url.set(database=None),
+                server_url,
                 pool_pre_ping=True,
                 connect_args={"connect_timeout": 10},
             )
@@ -56,16 +62,29 @@ def main() -> None:
         with engine.connect().execution_options(
             isolation_level="AUTOCOMMIT"
         ) as connection:
-            exists = connection.scalar(
-                text("SHOW DATABASES LIKE :database"),
-                {"database": database},
-            )
-            if exists is None:
-                connection.execute(
+            if backend == "postgresql":
+                exists = connection.scalar(
                     text(
+                        "SELECT 1 FROM pg_database "
+                        "WHERE datname = :database"
+                    ),
+                    {"database": database},
+                )
+            else:
+                exists = connection.scalar(
+                    text("SHOW DATABASES LIKE :database"),
+                    {"database": database},
+                )
+            if exists is None:
+                if backend == "postgresql":
+                    create_sql = f'CREATE DATABASE "{database}"'
+                else:
+                    create_sql = (
                         f"CREATE DATABASE `{database}` "
                         "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
                     )
+                connection.execute(
+                    text(create_sql)
                 )
                 print(f"database created: {database}")
             else:
