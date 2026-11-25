@@ -788,11 +788,11 @@ services:
 
   copilot-svc:
     build:
-      context: ../../copilot-svc
+      context: ../../bkn-foundry/adp/copilot-svc
       dockerfile: Dockerfile
       args:
-        NPM_REGISTRY: 
-    image: jiuge-bkn/copilot-svc:amd64
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com/}
+    image: jiuge-bkn/copilot-svc:${JIUGEBKN_IMAGE_TAG:-local}
     pull_policy: never
     environment:
       TZ: Asia/Shanghai
